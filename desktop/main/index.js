@@ -2,20 +2,23 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DEFAULT_CONFIG } from '../../shared/constants.js';
 import { createInitialWorldState, runTick } from '../../simulation/engine.js';
 import { writeSnapshot } from '../../simulation/snapshotStore.js';
-import { decideDeterministicAction } from '../../ai/providers/deterministicProvider.js';
+import { readConfig } from '../../shared/config.js';
+import { createProvider } from '../../ai/providerFactory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const config = readConfig();
+const provider = createProvider(config);
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 /** @type {NodeJS.Timeout | null} */
 let ticker = null;
 
-let world = createInitialWorldState({ civlingCount: DEFAULT_CONFIG.INITIAL_CIVLINGS });
+let world = createInitialWorldState({ civlingCount: Math.min(4, config.SIM_MAX_CIVLINGS) });
 
 function rendererPath() {
   return join(__dirname, '../renderer/index.html');
@@ -26,14 +29,15 @@ function runsDir() {
 }
 
 async function tickOnce() {
-  world = await runTick(world, decideDeterministicAction);
+  world = await runTick(world, (civling, state) => provider.decideAction(civling, state));
 
-  if (world.tick % DEFAULT_CONFIG.SIM_SNAPSHOT_EVERY_TICKS === 0) {
+  if (world.tick % config.SIM_SNAPSHOT_EVERY_TICKS === 0) {
     await writeSnapshot(runsDir(), world);
   }
 
   mainWindow?.webContents.send('sim:tick', {
-    world
+    world,
+    provider: config.AI_PROVIDER
   });
 
   if (world.extinction.ended) {
@@ -48,7 +52,7 @@ function startSimulation() {
 
   ticker = setInterval(() => {
     void tickOnce();
-  }, DEFAULT_CONFIG.SIM_TICK_MS);
+  }, config.SIM_TICK_MS);
 }
 
 function stopSimulation() {
@@ -76,7 +80,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  ipcMain.handle('sim:get-state', () => ({ world }));
+  ipcMain.handle('sim:get-state', () => ({ world, provider: config.AI_PROVIDER }));
   ipcMain.handle('sim:start', () => {
     startSimulation();
     return { started: true };
@@ -87,8 +91,8 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('sim:reset', () => {
     stopSimulation();
-    world = createInitialWorldState({ civlingCount: DEFAULT_CONFIG.INITIAL_CIVLINGS });
-    return { world };
+    world = createInitialWorldState({ civlingCount: Math.min(4, config.SIM_MAX_CIVLINGS) });
+    return { world, provider: config.AI_PROVIDER };
   });
 
   app.on('activate', () => {

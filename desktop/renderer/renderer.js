@@ -22,9 +22,10 @@ scene.add(light);
 
 const civlingMeshes = new Map();
 
-function setMetrics(world) {
+function setMetrics(world, provider) {
   const alive = world.civlings.filter((c) => c.status === 'alive').length;
   const metrics = [
+    `Provider: ${provider}`,
     `Tick: ${world.tick}`,
     `Alive: ${alive}/${world.civlings.length}`,
     `Food: ${world.resources.food}`,
@@ -58,8 +59,8 @@ function renderFrame() {
   requestAnimationFrame(renderFrame);
 }
 
-function onWorld(world) {
-  setMetrics(world);
+function onWorld(world, provider) {
+  setMetrics(world, provider);
   upsertCivlings(world);
 
   if (world.extinction.ended) {
@@ -80,7 +81,7 @@ function initControls() {
 
   resetBtn.addEventListener('click', async () => {
     const payload = await window.tinyCivs.reset();
-    onWorld(payload.world);
+    onWorld(payload.world, payload.provider);
     statusEl.textContent = 'Status: reset';
   });
 }
@@ -95,10 +96,10 @@ async function bootstrap() {
   initControls();
   bindResize();
 
-  window.tinyCivs.onTick(({ world }) => onWorld(world));
+  window.tinyCivs.onTick(({ world, provider }) => onWorld(world, provider));
 
   const initial = await window.tinyCivs.getState();
-  onWorld(initial.world);
+  onWorld(initial.world, initial.provider);
   renderFrame();
 }
 
