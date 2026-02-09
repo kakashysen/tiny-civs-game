@@ -1,0 +1,25 @@
+{
+  "name": "tiny-civs-game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "desktop/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --check ."
+  },
+  "dependencies": {
+    "three": "^0.174.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "electron": "^34.0.2",
+    "eslint": "^9.20.1",
+    "globals": "^15.14.0",
+    "prettier": "^3.5.0",
+    "vitest": "^3.0.5"
+  }
+}
