@@ -2,6 +2,7 @@ import * as THREE from '../../node_modules/three/build/three.module.js';
 
 const statusEl = document.getElementById('status');
 const metricsEl = document.getElementById('metricsList');
+const runHistoryEl = document.getElementById('runHistory');
 const worldCanvasEl = document.getElementById('worldCanvas');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -26,6 +27,8 @@ function setMetrics(world, provider) {
   const alive = world.civlings.filter((c) => c.status === 'alive').length;
   const metrics = [
     `Provider: ${provider}`,
+    `Run ID: ${world.runId}`,
+    `Restart Count: ${world.restartCount}`,
     `Tick: ${world.tick}`,
     `Alive: ${alive}/${world.civlings.length}`,
     `Food: ${world.resources.food}`,
@@ -36,6 +39,20 @@ function setMetrics(world, provider) {
   ];
 
   metricsEl.innerHTML = metrics.map((item) => `<li>${item}</li>`).join('');
+}
+
+function setRunHistory(runHistory) {
+  if (!runHistory.length) {
+    runHistoryEl.innerHTML = '<li>No completed runs yet.</li>';
+    return;
+  }
+
+  runHistoryEl.innerHTML = runHistory
+    .map(
+      (run) =>
+        `<li>#${run.restartCount} ${run.runId} | ticks ${run.ticks} | milestones ${run.milestones} | ${run.cause}</li>`
+    )
+    .join('');
 }
 
 function upsertCivlings(world) {
@@ -59,8 +76,9 @@ function renderFrame() {
   requestAnimationFrame(renderFrame);
 }
 
-function onWorld(world, provider) {
+function onState(world, provider, runHistory) {
   setMetrics(world, provider);
+  setRunHistory(runHistory);
   upsertCivlings(world);
 
   if (world.extinction.ended) {
@@ -81,7 +99,7 @@ function initControls() {
 
   resetBtn.addEventListener('click', async () => {
     const payload = await window.tinyCivs.reset();
-    onWorld(payload.world, payload.provider);
+    onState(payload.world, payload.provider, payload.runHistory);
     statusEl.textContent = 'Status: reset';
   });
 }
@@ -96,10 +114,12 @@ async function bootstrap() {
   initControls();
   bindResize();
 
-  window.tinyCivs.onTick(({ world, provider }) => onWorld(world, provider));
+  window.tinyCivs.onTick(({ world, provider, runHistory }) =>
+    onState(world, provider, runHistory)
+  );
 
   const initial = await window.tinyCivs.getState();
-  onWorld(initial.world, initial.provider);
+  onState(initial.world, initial.provider, initial.runHistory);
   renderFrame();
 }
 

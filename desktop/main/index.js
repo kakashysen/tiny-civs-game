@@ -17,6 +17,10 @@ const provider = createProvider(config);
 let mainWindow = null;
 /** @type {NodeJS.Timeout | null} */
 let ticker = null;
+/** @type {NodeJS.Timeout | null} */
+let restartTimer = null;
+/** @type {Array<{runId: string, ticks: number, milestones: number, cause: string|null, restartCount: number}>} */
+let runHistory = [];
 
 let world = createInitialWorldState({ civlingCount: Math.min(4, config.SIM_MAX_CIVLINGS) });
 
@@ -28,20 +32,55 @@ function runsDir() {
   return join(app.getPath('userData'), 'data', 'runs');
 }
 
+function sendTick() {
+  mainWindow?.webContents.send('sim:tick', {
+    world,
+    provider: config.AI_PROVIDER,
+    runHistory
+  });
+}
+
+function archiveCurrentRun() {
+  runHistory = [
+    {
+      runId: world.runId,
+      ticks: world.tick,
+      milestones: world.milestones.length,
+      cause: world.extinction.cause,
+      restartCount: world.restartCount
+    },
+    ...runHistory
+  ].slice(0, 12);
+}
+
+function restartCivilization() {
+  const nextRestartCount = world.restartCount + 1;
+  world = createInitialWorldState({
+    civlingCount: Math.min(4, config.SIM_MAX_CIVLINGS),
+    restartCount: nextRestartCount
+  });
+  sendTick();
+}
+
 async function tickOnce() {
   world = await runTick(world, (civling, state) => provider.decideAction(civling, state));
 
-  if (world.tick % config.SIM_SNAPSHOT_EVERY_TICKS === 0) {
+  if (world.tick % config.SIM_SNAPSHOT_EVERY_TICKS === 0 || world.extinction.ended) {
     await writeSnapshot(runsDir(), world);
   }
 
-  mainWindow?.webContents.send('sim:tick', {
-    world,
-    provider: config.AI_PROVIDER
-  });
+  sendTick();
 
   if (world.extinction.ended) {
     stopSimulation();
+    archiveCurrentRun();
+
+    if (config.SIM_AUTO_RESTART) {
+      restartTimer = setTimeout(() => {
+        restartCivilization();
+        startSimulation();
+      }, config.SIM_RESTART_DELAY_MS);
+    }
   }
 }
 
@@ -56,6 +95,11 @@ function startSimulation() {
 }
 
 function stopSimulation() {
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+
   if (!ticker) {
     return;
   }
@@ -80,7 +124,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  ipcMain.handle('sim:get-state', () => ({ world, provider: config.AI_PROVIDER }));
+  ipcMain.handle('sim:get-state', () => ({ world, provider: config.AI_PROVIDER, runHistory }));
   ipcMain.handle('sim:start', () => {
     startSimulation();
     return { started: true };
@@ -92,7 +136,8 @@ app.whenReady().then(() => {
   ipcMain.handle('sim:reset', () => {
     stopSimulation();
     world = createInitialWorldState({ civlingCount: Math.min(4, config.SIM_MAX_CIVLINGS) });
-    return { world, provider: config.AI_PROVIDER };
+    runHistory = [];
+    return { world, provider: config.AI_PROVIDER, runHistory };
   });
 
   app.on('activate', () => {

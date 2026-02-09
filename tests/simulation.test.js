@@ -30,4 +30,10 @@ describe('simulation engine', () => {
     expect(world.extinction.ended).toBe(true);
     expect(world.extinction.cause).toBe('all_civlings_dead');
   });
+
+  it('supports restartCount when creating next run', () => {
+    const world = createInitialWorldState({ civlingCount: 1, restartCount: 3 });
+
+    expect(world.restartCount).toBe(3);
+  });
 });

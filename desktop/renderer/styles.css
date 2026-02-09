@@ -23,7 +23,26 @@ body {
   padding: 20px;
   display: grid;
   grid-template-columns: 300px 300px 1fr;
+  grid-template-areas:
+    'controls metrics world'
+    'history history world';
   gap: 16px;
+}
+
+.controls {
+  grid-area: controls;
+}
+
+.metrics {
+  grid-area: metrics;
+}
+
+.world {
+  grid-area: world;
+}
+
+.history {
+  grid-area: history;
 }
 
 .panel {
@@ -65,7 +84,8 @@ button:hover {
   border: 1px solid #2a3a46;
 }
 
-#metricsList {
+#metricsList,
+#runHistory {
   margin: 0;
   padding-left: 18px;
 }
@@ -81,6 +101,11 @@ button:hover {
 @media (max-width: 1000px) {
   .layout {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      'controls'
+      'metrics'
+      'history'
+      'world';
   }
 
   #worldCanvas {

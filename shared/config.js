@@ -9,6 +9,14 @@ function intEnv(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function boolEnv(name, fallback) {
+  const value = process.env[name];
+  if (!value) {
+    return fallback;
+  }
+  return value.toLowerCase() === 'true';
+}
+
 export function readConfig() {
   return {
     SIM_TICK_MS: intEnv('SIM_TICK_MS', DEFAULT_CONFIG.SIM_TICK_MS),
@@ -17,6 +25,8 @@ export function readConfig() {
       DEFAULT_CONFIG.SIM_SNAPSHOT_EVERY_TICKS
     ),
     SIM_MAX_CIVLINGS: intEnv('SIM_MAX_CIVLINGS', DEFAULT_CONFIG.SIM_MAX_CIVLINGS),
+    SIM_AUTO_RESTART: boolEnv('SIM_AUTO_RESTART', true),
+    SIM_RESTART_DELAY_MS: intEnv('SIM_RESTART_DELAY_MS', 2000),
     AI_PROVIDER: process.env.AI_PROVIDER ?? 'deterministic',
     LOCAL_LLM_BASE_URL: process.env.LOCAL_LLM_BASE_URL ?? 'http://localhost:11434/v1',
     LOCAL_LLM_MODEL: process.env.LOCAL_LLM_MODEL ?? 'qwen2.5:3b',

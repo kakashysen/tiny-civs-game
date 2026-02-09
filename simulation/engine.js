@@ -25,11 +25,12 @@ function markDeadIfNeeded(civling) {
 }
 
 /**
- * @param {{runId?: string, civlingCount?: number}} options
+ * @param {{runId?: string, civlingCount?: number, restartCount?: number}} options
  */
 export function createInitialWorldState(options = {}) {
   const runId = options.runId ?? randomId('run');
   const civlingCount = options.civlingCount ?? 4;
+  const restartCount = options.restartCount ?? 0;
 
   const civlings = Array.from({ length: civlingCount }, (_, idx) => ({
     id: randomId('civ'),
@@ -48,7 +49,7 @@ export function createInitialWorldState(options = {}) {
   return {
     runId,
     tick: 0,
-    restartCount: 0,
+    restartCount,
     resources: {
       food: 12,
       wood: 6,
