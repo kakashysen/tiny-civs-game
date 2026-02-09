@@ -32,6 +32,8 @@ export function readConfig() {
     LOCAL_LLM_MODEL: process.env.LOCAL_LLM_MODEL ?? 'qwen2.5:3b',
     LOCAL_LLM_API_KEY: process.env.LOCAL_LLM_API_KEY ?? '',
     AI_DECISION_TIMEOUT_MS: intEnv('AI_DECISION_TIMEOUT_MS', 4000),
-    AI_MAX_RETRIES: intEnv('AI_MAX_RETRIES', 1)
+    AI_MAX_RETRIES: intEnv('AI_MAX_RETRIES', 1),
+    AI_ESCALATION_MODE: process.env.AI_ESCALATION_MODE ?? 'always',
+    AI_MAX_CALLS_PER_HOUR: intEnv('AI_MAX_CALLS_PER_HOUR', 80)
   };
 }
