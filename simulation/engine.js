@@ -42,6 +42,7 @@ export function createInitialWorldState(options = {}) {
     role: 'generalist',
     memory: [],
     status: 'alive',
+    foodEatenLastTick: 0,
     x: idx * 2,
     y: 0
   }));
@@ -105,6 +106,26 @@ function updateVitals(civling, { hungerDelta = 0, energyDelta = 0, healthDelta =
   civling.hunger = clamp(civling.hunger + hungerDelta, 0, 100);
   civling.energy = clamp(civling.energy + energyDelta, 0, 100);
   civling.health = clamp(civling.health + healthDelta, 0, 100);
+}
+
+/**
+ * Civlings can consume from shared food stock to reduce hunger.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {number} hungerThreshold
+ * @param {number} hungerRelief
+ */
+function consumeFood(world, civling, hungerThreshold = 60, hungerRelief = 25) {
+  if (world.resources.food <= 0 || civling.hunger < hungerThreshold) {
+    return false;
+  }
+
+  world.resources.food -= 1;
+  civling.hunger = clamp(civling.hunger - hungerRelief, 0, 100);
+  civling.energy = clamp(civling.energy + 8, 0, 100);
+  civling.foodEatenLastTick = (civling.foodEatenLastTick ?? 0) + 1;
+  addMemory(civling, 'Ate stored food.');
+  return true;
 }
 
 /**
@@ -184,10 +205,7 @@ function postTickWorldEffects(world) {
     civling.age += 1 / 12;
     civling.hunger = clamp(civling.hunger + 3, 0, 100);
 
-    if (world.resources.food > 0 && civling.hunger >= 50) {
-      world.resources.food -= 1;
-      civling.hunger = clamp(civling.hunger - 20, 0, 100);
-    }
+    consumeFood(world, civling, 60, 25);
 
     if (civling.hunger >= 85) {
       civling.health = clamp(civling.health - 8, 0, 100);
@@ -216,6 +234,7 @@ export async function runTick(world, decideAction, options = {}) {
   world.tick += 1;
 
   for (const civling of getAliveCivlings(world)) {
+    civling.foodEatenLastTick = 0;
     let envelope;
     let fallback = false;
 

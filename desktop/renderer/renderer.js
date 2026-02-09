@@ -8,7 +8,8 @@ const llmExchangeLogEl = document.getElementById('llmExchangeLog');
 const civlingStatsEl = document.getElementById('civlingStats');
 const worldCanvasEl = document.getElementById('worldCanvas');
 const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const resumeBtn = document.getElementById('resumeBtn');
 const resetBtn = document.getElementById('resetBtn');
 const civlingCountInput = document.getElementById('civlingCountInput');
 
@@ -123,6 +124,7 @@ function setCivlingStats(civlings, thoughtLog) {
         <td>${Math.round(civling.health)}</td>
         <td>${Math.round(civling.energy)}</td>
         <td>${Math.round(civling.hunger)}</td>
+        <td>${civling.foodEatenLastTick ?? 0}</td>
         <td>${civling.age.toFixed(1)}</td>
         <td>${civling.x},${civling.y}</td>
         <td>${actionNow}</td>
@@ -139,6 +141,7 @@ function setCivlingStats(civlings, thoughtLog) {
         <th>HP</th>
         <th>Energy</th>
         <th>Hunger</th>
+        <th>Ate</th>
         <th>Age</th>
         <th>Pos</th>
         <th>Action Now</th>
@@ -234,12 +237,22 @@ function initControls() {
     }
   });
 
-  stopBtn.addEventListener('click', async () => {
+  pauseBtn.addEventListener('click', async () => {
     try {
-      await window.tinyCivs.stop();
+      await window.tinyCivs.pause();
       setStatus('paused');
     } catch (error) {
-      setStatus('error (failed to stop simulation)');
+      setStatus('error (failed to pause simulation)');
+      console.error(error);
+    }
+  });
+
+  resumeBtn.addEventListener('click', async () => {
+    try {
+      await window.tinyCivs.resume();
+      setStatus('running');
+    } catch (error) {
+      setStatus('error (failed to resume simulation)');
       console.error(error);
     }
   });

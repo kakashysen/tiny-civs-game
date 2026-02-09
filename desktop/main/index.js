@@ -241,6 +241,14 @@ app.whenReady().then(() => {
     startSimulation();
     return { started: true };
   });
+  ipcMain.handle('sim:resume', () => {
+    startSimulation();
+    return { resumed: true };
+  });
+  ipcMain.handle('sim:pause', () => {
+    stopSimulation();
+    return { paused: true };
+  });
   ipcMain.handle('sim:stop', () => {
     stopSimulation();
     return { stopped: true };

@@ -53,9 +53,79 @@ describe('LocalApiProvider decideAction', () => {
     });
 
     const world = createInitialWorldState({ civlingCount: 1 });
+    world.civlings[0].hunger = 80;
     const action = await provider.decideAction(world.civlings[0], world);
 
     expect(action.action).toBe(ACTIONS.GATHER_FOOD);
+  });
+
+  it('overrides gather_food when not urgently hungry and repeating', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"gather_food","reason":"habit"}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.food = 10;
+    world.civlings[0].hunger = 25;
+    world.civlings[0].memory = ['Gathered food.', 'Gathered food.', 'Ate stored food.'];
+
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).not.toBe(ACTIONS.GATHER_FOOD);
+    expect(action.source).toBe('local_api_adjusted');
+  });
+
+  it('overrides explore to survival action when food/hunger risk is high', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"explore","reason":"To find food and resources."}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.food = 0;
+    world.civlings[0].hunger = 70;
+
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).toBe(ACTIONS.GATHER_FOOD);
+    expect(action.source).toBe('local_api_adjusted');
   });
 
   it('falls back to rest on persistent failure', async () => {

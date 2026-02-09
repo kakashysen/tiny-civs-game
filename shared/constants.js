@@ -7,7 +7,7 @@ export const ACTIONS = Object.freeze({
 });
 
 export const ACTION_VALUES = Object.freeze({
-  [ACTIONS.GATHER_FOOD]: { food: 2, energyCost: 2, hungerDelta: -18 },
+  [ACTIONS.GATHER_FOOD]: { food: 2, energyCost: 2, hungerDelta: 4 },
   [ACTIONS.GATHER_WOOD]: { wood: 2, energyCost: 2, hungerDelta: 4 },
   [ACTIONS.BUILD_SHELTER]: { woodCost: 3, shelter: 1, energyCost: 3, hungerDelta: 6 },
   [ACTIONS.REST]: { energyGain: 18, hungerDelta: 5 },

@@ -1,4 +1,5 @@
 import { ACTIONS } from '../../shared/constants.js';
+import { decideDeterministicAction } from './deterministicProvider.js';
 import { buildDecisionPrompt } from '../prompts/buildDecisionPrompt.js';
 
 function fallbackEnvelope(reason) {
@@ -76,6 +77,61 @@ function clip(text, max = 1200) {
     return text;
   }
   return `${text.slice(0, max)}...<truncated>`;
+}
+
+/**
+ * Prevent policy collapse where model repeats gather_food forever.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applyAntiLoopPolicy(civling, world, envelope) {
+  const isGatherFood = envelope.action === ACTIONS.GATHER_FOOD;
+  const lowHunger = civling.hunger <= 45;
+  const aliveCivlings = world.civlings.filter((item) => item.status === 'alive').length;
+  const reserveTarget = Math.max(6, aliveCivlings * 4);
+  const foodStockHealthy = world.resources.food >= reserveTarget;
+  const recentGatherCount = civling.memory
+    .slice(-3)
+    .filter((item) => item.includes('Gathered food')).length;
+  const repeatingGather = recentGatherCount >= 2;
+
+  if (isGatherFood && lowHunger && foodStockHealthy && repeatingGather) {
+    const alternative = decideDeterministicAction(civling, world);
+    if (alternative.action !== ACTIONS.GATHER_FOOD) {
+      return {
+        action: alternative.action,
+        reason: `anti_loop_override:${envelope.reason}`,
+        source: 'local_api_adjusted'
+      };
+    }
+  }
+
+  return envelope;
+}
+
+/**
+ * Ensure survival actions under immediate risk.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applySurvivalPolicy(civling, world, envelope) {
+  const starvationRisk = civling.hunger >= 70 || world.resources.food <= 0;
+  const energyRisk = civling.energy <= 20;
+  const notSurvivalAction =
+    envelope.action !== ACTIONS.GATHER_FOOD && envelope.action !== ACTIONS.REST;
+
+  if ((starvationRisk || energyRisk) && notSurvivalAction) {
+    const alternative = decideDeterministicAction(civling, world);
+    return {
+      action: alternative.action,
+      reason: `survival_override:${envelope.reason}`,
+      source: 'local_api_adjusted'
+    };
+  }
+
+  return envelope;
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -180,9 +236,11 @@ export class LocalApiProvider {
           envelope = extractPartialEnvelope(content);
         }
         if (envelope && Object.values(ACTIONS).includes(envelope.action)) {
+          let adjusted = applyAntiLoopPolicy(civling, world, envelope);
+          adjusted = applySurvivalPolicy(civling, world, adjusted);
           return {
-            ...envelope,
-            source: 'local_api',
+            ...adjusted,
+            source: adjusted.source ?? 'local_api',
             llmTrace: {
               prompt: clip(prompt),
               response: clip(lastRawResponse),

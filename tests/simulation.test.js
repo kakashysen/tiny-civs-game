@@ -21,6 +21,29 @@ describe('simulation engine', () => {
     expect(world.resources.food).toBeGreaterThan(beforeFood);
   });
 
+  it('gathering food reduces hunger and triggers food consumption', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.civlings[0].hunger = 90;
+    world.resources.food = 0;
+
+    await runTick(world, () => ({ action: ACTIONS.GATHER_FOOD, reason: 'test' }));
+
+    expect(world.civlings[0].hunger).toBeLessThan(90);
+    expect(world.resources.food).toBeGreaterThanOrEqual(0);
+    expect(world.civlings[0].foodEatenLastTick).toBeGreaterThanOrEqual(1);
+  });
+
+  it('gathering food at low hunger stores food instead of consuming immediately', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.civlings[0].hunger = 30;
+    world.resources.food = 0;
+
+    await runTick(world, () => ({ action: ACTIONS.GATHER_FOOD, reason: 'test' }));
+
+    expect(world.civlings[0].foodEatenLastTick).toBe(0);
+    expect(world.resources.food).toBeGreaterThanOrEqual(2);
+  });
+
   it('marks extinction when everyone starts dead', async () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.civlings[0].status = 'dead';
