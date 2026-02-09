@@ -7,9 +7,10 @@ import { GAME_RULES } from '../../shared/gameRules.js';
  * @returns {import('../../shared/types.js').ActionEnvelope}
  */
 export function decideDeterministicAction(civling, world) {
+  const aliveCivlings = world.civlings.filter((item) => item.status === 'alive');
   const reserveTarget = Math.max(
     GAME_RULES.food.reserveMinimum,
-    world.civlings.length * GAME_RULES.food.reservePerAliveCivling
+    aliveCivlings.length * GAME_RULES.food.reservePerAliveCivling
   );
 
   if (civling.energy <= 20) {
@@ -29,6 +30,27 @@ export function decideDeterministicAction(civling, world) {
 
   if (world.resources.wood < 10) {
     return { action: ACTIONS.GATHER_WOOD, reason: 'wood_target' };
+  }
+
+  const hasShelterCapacity = world.resources.shelterCapacity > aliveCivlings.length;
+  const hasFoodReserve = world.resources.food >= reserveTarget;
+  const isAdult = civling.age >= GAME_RULES.reproduction.minAdultAge;
+  const hasGoodVitals = civling.energy >= 60 && civling.hunger <= 55;
+  const partnerExists = aliveCivlings.some(
+    (item) =>
+      item.id !== civling.id &&
+      item.age >= GAME_RULES.reproduction.minAdultAge &&
+      (GAME_RULES.reproduction.requiresMaleAndFemale ? item.gender !== civling.gender : true)
+  );
+  if (
+    GAME_RULES.reproduction.enabled &&
+    hasShelterCapacity &&
+    hasFoodReserve &&
+    isAdult &&
+    hasGoodVitals &&
+    partnerExists
+  ) {
+    return { action: ACTIONS.REPRODUCE, reason: 'stable_reproduction_window' };
   }
 
   return { action: ACTIONS.EXPLORE, reason: 'default_explore' };

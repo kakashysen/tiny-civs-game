@@ -7,6 +7,10 @@
  */
 
 /**
+ * @typedef {'male'|'female'} CivlingGender
+ */
+
+/**
  * @typedef {Object} Civling
  * @property {string} id
  * @property {string} name
@@ -15,8 +19,14 @@
  * @property {number} energy
  * @property {number} hunger
  * @property {CivlingRole} role
+ * @property {CivlingGender} gender
  * @property {string[]} memory
  * @property {CivlingStatus} status
+ * @property {number} foodEatenLastTick
+ * @property {number} reproductionAttempts
+ * @property {number} babiesBorn
+ * @property {number} babyChance
+ * @property {number|null} reproduceIntentTick
  * @property {number} x
  * @property {number} y
  */

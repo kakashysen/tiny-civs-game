@@ -169,6 +169,51 @@ function applyShelterNeedPolicy(world, envelope) {
   return envelope;
 }
 
+/**
+ * Prevent reproduction action when preconditions are not met.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applyReproductionPolicy(civling, world, envelope) {
+  if (envelope.action !== ACTIONS.REPRODUCE || !GAME_RULES.reproduction.enabled) {
+    return envelope;
+  }
+
+  const aliveCivlings = world.civlings.filter((item) => item.status === 'alive');
+  const reserveTarget = Math.max(
+    GAME_RULES.food.reserveMinimum,
+    aliveCivlings.length * GAME_RULES.food.reservePerAliveCivling
+  );
+  const shelterReady =
+    !GAME_RULES.reproduction.requiresShelterCapacityAvailable ||
+    world.resources.shelterCapacity > aliveCivlings.length;
+  const partnerExists = aliveCivlings.some(
+    (item) =>
+      item.id !== civling.id &&
+      item.age >= GAME_RULES.reproduction.minAdultAge &&
+      (GAME_RULES.reproduction.requiresMaleAndFemale ? item.gender !== civling.gender : true)
+  );
+  const ready =
+    civling.age >= GAME_RULES.reproduction.minAdultAge &&
+    civling.energy >= 60 &&
+    civling.hunger <= 55 &&
+    world.resources.food >= reserveTarget &&
+    shelterReady &&
+    partnerExists;
+
+  if (ready) {
+    return envelope;
+  }
+
+  const alternative = decideDeterministicAction(civling, world);
+  return {
+    action: alternative.action,
+    reason: `reproduction_not_ready_override:${envelope.reason}`,
+    source: 'local_api_adjusted'
+  };
+}
+
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -276,6 +321,7 @@ export class LocalApiProvider {
           let adjusted = applyAntiLoopPolicy(civling, world, envelope);
           adjusted = applySurvivalPolicy(civling, world, adjusted);
           adjusted = applyShelterNeedPolicy(world, adjusted);
+          adjusted = applyReproductionPolicy(civling, world, adjusted);
           return {
             ...adjusted,
             source: adjusted.source ?? 'local_api',

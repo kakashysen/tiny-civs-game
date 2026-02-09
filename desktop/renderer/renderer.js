@@ -109,7 +109,8 @@ function setActionChart(civlings, thoughtLog, runId) {
     'gather_wood',
     'build_shelter',
     'rest',
-    'explore'
+    'explore',
+    'reproduce'
   ];
   const runThoughts = thoughtLog.filter((entry) => entry.runId === runId);
 
@@ -121,17 +122,23 @@ function setActionChart(civlings, thoughtLog, runId) {
     for (const entry of civThoughts) {
       counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
     }
+    counts.set('reproduce', civling.reproductionAttempts ?? 0);
     const maxCount = Math.max(
       1,
       ...actions.map((action) => counts.get(action) ?? 0)
     );
+    const attempts = civling.reproductionAttempts ?? 0;
+    const babiesBorn = civling.babiesBorn ?? 0;
+    const baseChance = Math.round((civling.babyChance ?? 0) * 100);
+    const successChance = attempts > 0 ? Math.round((babiesBorn / attempts) * 100) : 0;
 
     const actionRows = actions
       .map((action) => {
         const count = counts.get(action) ?? 0;
         const width = Math.round((count / maxCount) * 100);
+        const label = action === 'reproduce' ? 'sex acts' : action.replaceAll('_', ' ');
         return `<div class="action-row">
-          <div class="action-label">${action.replace('_', ' ')}</div>
+          <div class="action-label">${label}</div>
           <div class="action-bar-track"><div class="action-bar-fill" style="width:${width}%"></div></div>
           <div class="action-count">${count}</div>
         </div>`;
@@ -140,6 +147,7 @@ function setActionChart(civlings, thoughtLog, runId) {
 
     rows.push(`<div class="action-civling">
       <p class="action-civling-title">${civling.name}</p>
+      <p>Baby chance: ${baseChance}% | Success so far: ${successChance}% (${babiesBorn}/${attempts})</p>
       ${actionRows}
     </div>`);
   }
@@ -172,6 +180,7 @@ function setCivlingStats(civlings, thoughtLog) {
 
       return `<tr class="${deadClass}">
         <td>${civling.name}</td>
+        <td>${civling.gender}</td>
         <td>${civling.status}</td>
         <td>${Math.round(civling.health)}</td>
         <td>${Math.round(civling.energy)}</td>
@@ -189,6 +198,7 @@ function setCivlingStats(civlings, thoughtLog) {
     <thead>
       <tr>
         <th>Name</th>
+        <th>Gender</th>
         <th>Status</th>
         <th>HP</th>
         <th>Energy</th>

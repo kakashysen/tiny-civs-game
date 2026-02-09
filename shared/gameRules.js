@@ -24,10 +24,11 @@ const DEFAULT_GAME_RULES = Object.freeze({
     lowEnergyRiskThreshold: 20
   },
   reproduction: {
-    enabled: false,
+    enabled: true,
     requiresMaleAndFemale: true,
     requiresShelterCapacityAvailable: true,
-    minAdultAge: 18
+    minAdultAge: 18,
+    conceptionChance: 0.35
   }
 });
 

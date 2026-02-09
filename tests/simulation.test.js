@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ACTIONS } from '../shared/constants.js';
 import { createInitialWorldState, runTick } from '../simulation/engine.js';
@@ -69,5 +69,83 @@ describe('simulation engine', () => {
     const world = createInitialWorldState({ civlingCount: 1, restartCount: 3 });
 
     expect(world.restartCount).toBe(3);
+  });
+
+  it('creates a newborn only when adult partners choose reproduce with shelter capacity available', async () => {
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.resources.shelterCapacity = 3;
+    const randomSpy = vi
+      .spyOn(Math, 'random')
+      .mockReturnValueOnce(0.1)
+      .mockReturnValueOnce(0.1);
+
+    try {
+      await runTick(world, () => ({ action: ACTIONS.REPRODUCE, reason: 'test' }));
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    expect(world.civlings).toHaveLength(3);
+    const newborn = world.civlings[2];
+    expect(newborn.age).toBe(0);
+    expect(['male', 'female']).toContain(newborn.gender);
+    expect(newborn.babyChance).toBeCloseTo(0.35, 5);
+    expect(newborn.memory).toContain('Born this tick.');
+    expect(world.civlings[0].reproductionAttempts).toBe(1);
+    expect(world.civlings[1].reproductionAttempts).toBe(1);
+  });
+
+  it('does not create newborn when adults do not choose reproduce', async () => {
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.resources.shelterCapacity = 3;
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.civlings).toHaveLength(2);
+    expect(world.civlings[0].reproductionAttempts).toBe(0);
+    expect(world.civlings[1].reproductionAttempts).toBe(0);
+  });
+
+  it('does not create newborn when shelter capacity is full', async () => {
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.resources.shelterCapacity = 2;
+
+    await runTick(world, () => ({ action: ACTIONS.REPRODUCE, reason: 'test' }));
+
+    expect(world.civlings).toHaveLength(2);
+    expect(world.civlings[0].reproductionAttempts).toBe(0);
+    expect(world.civlings[1].reproductionAttempts).toBe(0);
+  });
+
+  it('does not count sex attempts when only one civling chooses reproduce', async () => {
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.resources.shelterCapacity = 3;
+
+    await runTick(world, (civling) => ({
+      action: civling.id === world.civlings[0].id ? ACTIONS.REPRODUCE : ACTIONS.REST,
+      reason: 'test'
+    }));
+
+    expect(world.civlings).toHaveLength(2);
+    expect(world.civlings[0].reproductionAttempts).toBe(0);
+    expect(world.civlings[1].reproductionAttempts).toBe(0);
+  });
+
+  it('tracks reproduction attempts when no baby is conceived', async () => {
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.resources.shelterCapacity = 3;
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+
+    try {
+      await runTick(world, () => ({ action: ACTIONS.REPRODUCE, reason: 'test' }));
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    expect(world.civlings).toHaveLength(2);
+    expect(world.civlings[0].reproductionAttempts).toBe(1);
+    expect(world.civlings[1].reproductionAttempts).toBe(1);
+    expect(world.civlings[0].babiesBorn).toBe(0);
+    expect(world.civlings[1].babiesBorn).toBe(0);
   });
 });

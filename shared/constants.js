@@ -3,7 +3,8 @@ export const ACTIONS = Object.freeze({
   GATHER_WOOD: 'gather_wood',
   BUILD_SHELTER: 'build_shelter',
   REST: 'rest',
-  EXPLORE: 'explore'
+  EXPLORE: 'explore',
+  REPRODUCE: 'reproduce'
 });
 
 export const ACTION_VALUES = Object.freeze({
@@ -11,7 +12,8 @@ export const ACTION_VALUES = Object.freeze({
   [ACTIONS.GATHER_WOOD]: { wood: 2, energyCost: 2, hungerDelta: 4 },
   [ACTIONS.BUILD_SHELTER]: { woodCost: 3, shelter: 1, energyCost: 3, hungerDelta: 6 },
   [ACTIONS.REST]: { energyGain: 18, hungerDelta: 5 },
-  [ACTIONS.EXPLORE]: { chanceFood: 0.35, chanceWood: 0.35, energyCost: 3, hungerDelta: 8 }
+  [ACTIONS.EXPLORE]: { chanceFood: 0.35, chanceWood: 0.35, energyCost: 3, hungerDelta: 8 },
+  [ACTIONS.REPRODUCE]: { energyCost: 6, hungerDelta: 10 }
 });
 
 export const MILESTONES = Object.freeze({

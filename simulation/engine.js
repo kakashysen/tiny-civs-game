@@ -26,12 +26,22 @@ function markDeadIfNeeded(civling) {
 }
 
 /**
+ * Creates a display name for newly born civlings.
+ * @param {import('../shared/types.js').WorldState} world
+ * @returns {string}
+ */
+function createNewbornName(world) {
+  return `${BASE_NAMES[world.civlings.length % BASE_NAMES.length]}-${world.tick}`;
+}
+
+/**
  * @param {{runId?: string, civlingCount?: number, restartCount?: number}} options
  */
 export function createInitialWorldState(options = {}) {
   const runId = options.runId ?? randomId('run');
   const civlingCount = options.civlingCount ?? 4;
   const restartCount = options.restartCount ?? 0;
+  const defaultBabyChance = clamp(GAME_RULES.reproduction.conceptionChance ?? 0.35, 0, 1);
 
   const civlings = Array.from({ length: civlingCount }, (_, idx) => ({
     id: randomId('civ'),
@@ -41,10 +51,14 @@ export function createInitialWorldState(options = {}) {
     energy: 70,
     hunger: 30,
     role: 'generalist',
-    sex: idx % 2 === 0 ? 'male' : 'female',
+    gender: idx % 2 === 0 ? 'male' : 'female',
     memory: [],
     status: 'alive',
     foodEatenLastTick: 0,
+    reproductionAttempts: 0,
+    babiesBorn: 0,
+    babyChance: defaultBabyChance,
+    reproduceIntentTick: null,
     x: idx * 2,
     y: 0
   }));
@@ -204,6 +218,15 @@ export function applyAction(world, civling, action) {
     addMemory(civling, 'Explored nearby terrain.');
   }
 
+  if (action === ACTIONS.REPRODUCE) {
+    civling.reproduceIntentTick = world.tick;
+    updateVitals(civling, {
+      hungerDelta: values.hungerDelta,
+      energyDelta: -values.energyCost
+    });
+    addMemory(civling, 'Attempted to reproduce.');
+  }
+
   markDeadIfNeeded(civling);
 }
 
@@ -234,6 +257,92 @@ function postTickWorldEffects(world) {
 }
 
 /**
+ * Attempts to create one newborn civling when reproduction requirements are met.
+ * @param {import('../shared/types.js').WorldState} world
+ */
+function applyReproduction(world) {
+  const rules = GAME_RULES.reproduction;
+  if (!rules.enabled) {
+    return;
+  }
+
+  const adults = getAliveCivlings(world).filter(
+    (civling) =>
+      civling.age >= rules.minAdultAge && civling.reproduceIntentTick === world.tick
+  );
+  if (adults.length < 2) {
+    return;
+  }
+
+  let mother = adults.find((civling) => civling.gender === 'female');
+  let father = adults.find((civling) => civling.gender === 'male');
+
+  if (rules.requiresMaleAndFemale && (!mother || !father)) {
+    return;
+  }
+
+  if (!rules.requiresMaleAndFemale) {
+    mother = mother ?? adults[0];
+    father = father ?? adults[1];
+  }
+
+  const aliveCount = getAliveCivlings(world).length;
+  if (rules.requiresShelterCapacityAvailable && world.resources.shelterCapacity <= aliveCount) {
+    return;
+  }
+
+  const conceptionChance = clamp(rules.conceptionChance ?? 0.35, 0, 1);
+  if (mother) {
+    mother.reproductionAttempts = (mother.reproductionAttempts ?? 0) + 1;
+  }
+  if (father) {
+    father.reproductionAttempts = (father.reproductionAttempts ?? 0) + 1;
+  }
+
+  if (Math.random() >= conceptionChance) {
+    if (mother) {
+      addMemory(mother, 'No baby this time.');
+    }
+    if (father) {
+      addMemory(father, 'No baby this time.');
+    }
+    return;
+  }
+
+  const newbornGender = Math.random() < 0.5 ? 'male' : 'female';
+  const newborn = {
+    id: randomId('civ'),
+    name: createNewbornName(world),
+    age: 0,
+    health: 100,
+    energy: 70,
+    hunger: 25,
+    role: 'generalist',
+    gender: newbornGender,
+    memory: ['Born this tick.'],
+    status: 'alive',
+    foodEatenLastTick: 0,
+    reproductionAttempts: 0,
+    babiesBorn: 0,
+    babyChance: conceptionChance,
+    reproduceIntentTick: null,
+    x: mother?.x ?? 0,
+    y: mother?.y ?? 0
+  };
+
+  world.civlings.push(newborn);
+
+  if (mother) {
+    mother.babiesBorn = (mother.babiesBorn ?? 0) + 1;
+    addMemory(mother, `Had a child (${newborn.name}).`);
+  }
+  if (father) {
+    father.babiesBorn = (father.babiesBorn ?? 0) + 1;
+    addMemory(father, `Had a child (${newborn.name}).`);
+  }
+}
+
+/**
  * @param {import('../shared/types.js').WorldState} world
  * @param {(civling: import('../shared/types.js').Civling, world: import('../shared/types.js').WorldState) => import('../shared/types.js').ActionEnvelope | Promise<import('../shared/types.js').ActionEnvelope>} decideAction
  * @param {{onDecision?: (entry: {tick: number, civlingId: string, civlingName: string, action: string, reason: string, fallback: boolean, source: string, llmTrace?: {prompt: string, response: string, status: string}|null}) => void}} [options]
@@ -247,6 +356,7 @@ export async function runTick(world, decideAction, options = {}) {
 
   for (const civling of getAliveCivlings(world)) {
     civling.foodEatenLastTick = 0;
+    civling.reproduceIntentTick = null;
     let envelope;
     let fallback = false;
 
@@ -281,6 +391,7 @@ export async function runTick(world, decideAction, options = {}) {
   }
 
   postTickWorldEffects(world);
+  applyReproduction(world);
   evaluateMilestones(world);
   return world;
 }
