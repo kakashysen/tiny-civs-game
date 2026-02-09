@@ -1,7 +1,8 @@
 # Tiny Civs
 
 ## Overview
-**Tiny Civs** is a web-based AI-driven simulation game where a small population of autonomous entities—called **Civlings**—evolves over time. Each Civling makes independent decisions, discovers technologies, builds structures, reproduces, and may eventually perish. The simulation observes how civilizations emerge, collapse, and restart across multiple evolutionary cycles.
+
+**Tiny Civs** is a local desktop AI-driven simulation game where a small population of autonomous entities—called **Civlings**—evolves over time. Each Civling makes independent decisions, discovers technologies, builds structures, reproduces, and may eventually perish. The simulation observes how civilizations emerge, collapse, and restart across multiple evolutionary cycles.
 
 The project starts intentionally small and simple, designed to evolve incrementally.
 
@@ -10,14 +11,16 @@ The project starts intentionally small and simple, designed to evolve incrementa
 ## Core Concepts
 
 ### Civlings (Entities)
+
 - **Name:** Civling (singular) / Civlings (plural)
-- **Pronunciation:** *SIV-lingz*
+- **Pronunciation:** _SIV-lingz_
 - Autonomous AI-driven beings
 - Each Civling has its own internal state, memory, and decision-making logic
 - Civlings collectively form a civilization
 
 ### Civilization Lifecycle
-- Civilization begins with a small population (e.g. 3–6 Civlings)
+
+- Civilization begins with a small population (e.g. 3-6 Civlings)
 - Civlings act independently but affect shared resources and progress
 - Civilizations may:
   - Thrive and advance through eras
@@ -43,11 +46,14 @@ The project starts intentionally small and simple, designed to evolve incrementa
 ## AI & Decision Making
 
 ### Primary AI Approach (Initial Phase)
-- **Codex CLI / OpenAI models** are used for decision-making
+
+- **Local LLM API** is used for decision-making
 - Each Civling sends structured prompts describing its context
 - The LLM returns a decision, reasoning, or action proposal
+- Local runtime is preferred (e.g., Ollama/OpenAI-compatible endpoint)
 
 ### Prompt Strategy
+
 - Prompts are **dynamic**, not shared blindly
 - Prompt content varies based on:
   - Civling role
@@ -56,27 +62,39 @@ The project starts intentionally small and simple, designed to evolve incrementa
   - Environmental conditions
 
 ### Example Prompt (Conceptual)
+
 > You are a Civling in a primitive civilization. Food is scarce, and no shelter exists. Choose one action: gather food, build shelter, explore. Explain briefly.
 
 ---
 
 ## Optional: Local LLM Support
 
-- Local LLMs (e.g. small Qwen models) may be added as an optional path
-- Used for:
+- Local LLMs are the default path (e.g. small Qwen models)
+- Multiple local providers may be tested for:
   - Offline mode
-  - Cost or latency reduction
-  - Comparative testing vs cloud models
-- Decision logic remains compatible across both approaches
+  - Latency reduction
+  - Quality/performance comparisons across models
+- Decision logic remains provider-agnostic
+
+## Plan B: Hybrid Inference Engine
+
+- The simulation can run mostly on deterministic logic and call LLMs only for high-impact decisions.
+- Trigger examples:
+  - Era transition or milestone unlock
+  - Extinction-risk recovery
+  - Repeated blocked action plans
+  - Scheduled innovation pulses
+- This mode is used to reduce inference volume and keep runtime stable.
 
 ---
 
 ## Environment & Visualization
 
-- **2D web-based environment**
+- **2D-style local desktop environment**
 - Technologies:
-  - HTML5 Canvas
-  - PixiJS or Phaser (optional)
+  - Electron (app shell)
+  - Vanilla JavaScript (renderer)
+  - Three.js (rendering)
 - Visuals start minimal:
   - Simple shapes or icons
   - No designer required
@@ -87,10 +105,12 @@ The project starts intentionally small and simple, designed to evolve incrementa
 ## Data & Persistence
 
 ### Early Phase
+
 - In-memory state management
 - Periodic snapshots stored as JSON
 
 ### Tracked Data
+
 - Civilization run ID
 - Number of restarts
 - Duration of each civilization
@@ -103,7 +123,7 @@ The project starts intentionally small and simple, designed to evolve incrementa
 
 1. Civilization tick
 2. Each Civling evaluates its context
-3. Prompt sent to AI (Codex CLI or local LLM)
+3. Prompt sent to AI (local LLM API by default)
 4. Action selected
 5. World state updated
 6. Evolution / death checks
@@ -115,8 +135,9 @@ The project starts intentionally small and simple, designed to evolve incrementa
 ## Testing & Experimentation
 
 - Compare responses between:
-  - Codex / OpenAI models
-  - Local LLMs
+  - Local LLM models/providers
+  - Hybrid inference mode vs always-LLM mode
+  - Deterministic fallback logic
 - Measure:
   - Quality of decisions
   - Consistency
@@ -137,5 +158,4 @@ The project starts intentionally small and simple, designed to evolve incrementa
 ## Status
 
 **Phase:** Concept & Planning
-**Next Step:** Define Civling data model and base prompt template
-
+**Next Step:** Scaffold Electron + Three.js app structure and define Civling data model + base prompt template
