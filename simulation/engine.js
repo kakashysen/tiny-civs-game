@@ -206,8 +206,9 @@ function postTickWorldEffects(world) {
 /**
  * @param {import('../shared/types.js').WorldState} world
  * @param {(civling: import('../shared/types.js').Civling, world: import('../shared/types.js').WorldState) => import('../shared/types.js').ActionEnvelope | Promise<import('../shared/types.js').ActionEnvelope>} decideAction
+ * @param {{onDecision?: (entry: {tick: number, civlingId: string, civlingName: string, action: string, reason: string, fallback: boolean, source: string, llmTrace?: {prompt: string, response: string, status: string}|null}) => void}} [options]
  */
-export async function runTick(world, decideAction) {
+export async function runTick(world, decideAction, options = {}) {
   if (world.extinction.ended) {
     return world;
   }
@@ -216,13 +217,35 @@ export async function runTick(world, decideAction) {
 
   for (const civling of getAliveCivlings(world)) {
     let envelope;
+    let fallback = false;
+
     try {
       envelope = await decideAction(civling, world);
     } catch {
-      envelope = { action: ACTIONS.REST, reason: 'fallback_after_decision_error' };
+      envelope = {
+        action: ACTIONS.REST,
+        reason: 'fallback_after_decision_error',
+        source: 'fallback'
+      };
+      fallback = true;
     }
 
     const action = isValidAction(envelope?.action) ? envelope.action : ACTIONS.REST;
+    if (action !== envelope?.action) {
+      fallback = true;
+    }
+
+    options.onDecision?.({
+      tick: world.tick,
+      civlingId: civling.id,
+      civlingName: civling.name,
+      action,
+      reason: envelope?.reason ?? 'missing_reason',
+      fallback,
+      source: envelope?.source ?? 'provider',
+      llmTrace: envelope?.llmTrace ?? null
+    });
+
     applyAction(world, civling, action);
   }
 

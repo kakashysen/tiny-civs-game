@@ -1,7 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron';
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('tinyCivs', {
   getState: () => ipcRenderer.invoke('sim:get-state'),
+  setCivlingCount: (count) => ipcRenderer.invoke('sim:set-civling-count', count),
   start: () => ipcRenderer.invoke('sim:start'),
   stop: () => ipcRenderer.invoke('sim:stop'),
   reset: () => ipcRenderer.invoke('sim:reset'),

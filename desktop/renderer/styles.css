@@ -25,7 +25,9 @@ body {
   grid-template-columns: 300px 300px 1fr;
   grid-template-areas:
     'controls metrics world'
-    'history history world';
+    'history thoughts world'
+    'llm llm world'
+    'civlings civlings world';
   gap: 16px;
 }
 
@@ -45,6 +47,18 @@ body {
   grid-area: history;
 }
 
+.thoughts {
+  grid-area: thoughts;
+}
+
+.llm {
+  grid-area: llm;
+}
+
+.civlings {
+  grid-area: civlings;
+}
+
 .panel {
   background: linear-gradient(180deg, var(--surface), var(--surface-2));
   border: 1px solid #31414e;
@@ -61,6 +75,26 @@ h2 {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.field label {
+  font-size: 12px;
+  color: #9fc0d6;
+}
+
+.field input {
+  border: 1px solid #2a3a46;
+  border-radius: 8px;
+  background: #0f171d;
+  color: var(--text);
+  padding: 8px;
 }
 
 button {
@@ -85,9 +119,76 @@ button:hover {
 }
 
 #metricsList,
-#runHistory {
+#runHistory,
+#thoughtLog,
+#llmExchangeLog {
   margin: 0;
   padding-left: 18px;
+}
+
+#thoughtLog {
+  max-height: 240px;
+  overflow: auto;
+}
+
+#thoughtLog li {
+  margin-bottom: 6px;
+  line-height: 1.25;
+}
+
+#llmExchangeLog {
+  max-height: 220px;
+  overflow: auto;
+}
+
+#llmExchangeLog li {
+  margin-bottom: 10px;
+  line-height: 1.3;
+}
+
+.llm-label {
+  color: #9fc0d6;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.llm-block {
+  margin: 2px 0 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: #0f171d;
+  border: 1px solid #273643;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#civlingStats {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.civling-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.civling-table th,
+.civling-table td {
+  border-bottom: 1px solid #2b3944;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.civling-table th {
+  color: #9fc0d6;
+  font-weight: 600;
+}
+
+.civling-dead {
+  color: #9099a4;
 }
 
 #worldCanvas {
@@ -105,6 +206,9 @@ button:hover {
       'controls'
       'metrics'
       'history'
+      'thoughts'
+      'llm'
+      'civlings'
       'world';
   }
 

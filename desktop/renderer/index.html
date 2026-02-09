@@ -15,6 +15,10 @@
           <button id="stopBtn">Stop</button>
           <button id="resetBtn">Reset</button>
         </div>
+        <div class="field">
+          <label for="civlingCountInput">Civlings to Start</label>
+          <input id="civlingCountInput" type="number" min="1" max="6" step="1" />
+        </div>
         <div id="status">Status: idle</div>
       </section>
 
@@ -31,6 +35,21 @@
       <section class="panel history">
         <h2>Recent Runs</h2>
         <ul id="runHistory"></ul>
+      </section>
+
+      <section class="panel thoughts">
+        <h2>Civling Thought Log</h2>
+        <ul id="thoughtLog"></ul>
+      </section>
+
+      <section class="panel llm">
+        <h2>LLM Exchange</h2>
+        <ul id="llmExchangeLog"></ul>
+      </section>
+
+      <section class="panel civlings">
+        <h2>Civling Stats</h2>
+        <div id="civlingStats"></div>
       </section>
     </main>
 

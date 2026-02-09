@@ -14,6 +14,13 @@ describe('localApiProvider parsing', () => {
     const parsed = __testOnly.extractEnvelope('{"bad":true}');
     expect(parsed).toBeNull();
   });
+
+  it('extracts partial envelope from truncated output', () => {
+    const parsed = __testOnly.extractPartialEnvelope(
+      '{"action":"gather_food","reason":"Ari needs food'
+    );
+    expect(parsed).toEqual({ action: 'gather_food', reason: 'Ari needs food' });
+  });
 });
 
 describe('LocalApiProvider decideAction', () => {
@@ -70,6 +77,46 @@ describe('LocalApiProvider decideAction', () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     const action = await provider.decideAction(world.civlings[0], world);
 
-    expect(action).toEqual({ action: ACTIONS.REST, reason: 'local_api_fallback_rest' });
+    expect(action).toMatchObject({
+      action: ACTIONS.REST,
+      reason: 'local_api_fallback_rest',
+      source: 'local_api'
+    });
+    expect(action.llmTrace).toBeTruthy();
+  });
+
+  it('retries without response_format after HTTP 400', async () => {
+    const first = {
+      ok: false,
+      status: 400,
+      text: async () => 'response_format unsupported'
+    };
+    const second = {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: '{"action":"gather_food","reason":"retry worked"}'
+            }
+          }
+        ]
+      })
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(action.action).toBe(ACTIONS.GATHER_FOOD);
   });
 });
