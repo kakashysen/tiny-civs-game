@@ -1,4 +1,5 @@
 import { ACTIONS, ACTION_VALUES, MILESTONES } from '../shared/constants.js';
+import { GAME_RULES } from '../shared/gameRules.js';
 
 const BASE_NAMES = ['Ari', 'Bex', 'Cori', 'Dax', 'Ena', 'Fio'];
 
@@ -40,6 +41,7 @@ export function createInitialWorldState(options = {}) {
     energy: 70,
     hunger: 30,
     role: 'generalist',
+    sex: idx % 2 === 0 ? 'male' : 'female',
     memory: [],
     status: 'alive',
     foodEatenLastTick: 0,
@@ -115,14 +117,19 @@ function updateVitals(civling, { hungerDelta = 0, energyDelta = 0, healthDelta =
  * @param {number} hungerThreshold
  * @param {number} hungerRelief
  */
-function consumeFood(world, civling, hungerThreshold = 60, hungerRelief = 25) {
+function consumeFood(
+  world,
+  civling,
+  hungerThreshold = GAME_RULES.food.eatHungerThreshold,
+  hungerRelief = GAME_RULES.food.eatHungerRelief
+) {
   if (world.resources.food <= 0 || civling.hunger < hungerThreshold) {
     return false;
   }
 
   world.resources.food -= 1;
   civling.hunger = clamp(civling.hunger - hungerRelief, 0, 100);
-  civling.energy = clamp(civling.energy + 8, 0, 100);
+  civling.energy = clamp(civling.energy + GAME_RULES.food.eatEnergyGain, 0, 100);
   civling.foodEatenLastTick = (civling.foodEatenLastTick ?? 0) + 1;
   addMemory(civling, 'Ate stored food.');
   return true;
@@ -155,9 +162,11 @@ export function applyAction(world, civling, action) {
   }
 
   if (action === ACTIONS.BUILD_SHELTER) {
-    if (world.resources.wood >= values.woodCost) {
-      world.resources.wood -= values.woodCost;
-      world.resources.shelterCapacity += values.shelter;
+    const shelterWoodCost = GAME_RULES.shelter.woodCostPerUnit;
+    const shelterCapacityGain = GAME_RULES.shelter.capacityPerUnit;
+    if (world.resources.wood >= shelterWoodCost) {
+      world.resources.wood -= shelterWoodCost;
+      world.resources.shelterCapacity += shelterCapacityGain;
       addMemory(civling, 'Expanded shelter.');
     } else {
       addMemory(civling, 'Failed to build shelter (no wood).');
@@ -169,9 +178,12 @@ export function applyAction(world, civling, action) {
   }
 
   if (action === ACTIONS.REST) {
+    const aliveCount = getAliveCivlings(world).length;
+    const hasShelterCoverage = world.resources.shelterCapacity >= aliveCount && aliveCount > 0;
+    const shelterBonus = hasShelterCoverage ? GAME_RULES.shelter.restEnergyBonusWhenSheltered : 0;
     updateVitals(civling, {
       hungerDelta: values.hungerDelta,
-      energyDelta: values.energyGain
+      energyDelta: values.energyGain + shelterBonus
     });
     addMemory(civling, 'Rested to recover energy.');
   }
@@ -205,7 +217,7 @@ function postTickWorldEffects(world) {
     civling.age += 1 / 12;
     civling.hunger = clamp(civling.hunger + 3, 0, 100);
 
-    consumeFood(world, civling, 60, 25);
+    consumeFood(world, civling);
 
     if (civling.hunger >= 85) {
       civling.health = clamp(civling.health - 8, 0, 100);

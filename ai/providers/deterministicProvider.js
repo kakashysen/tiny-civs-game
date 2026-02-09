@@ -1,4 +1,5 @@
 import { ACTIONS } from '../../shared/constants.js';
+import { GAME_RULES } from '../../shared/gameRules.js';
 
 /**
  * @param {import('../../shared/types.js').Civling} civling
@@ -6,15 +7,23 @@ import { ACTIONS } from '../../shared/constants.js';
  * @returns {import('../../shared/types.js').ActionEnvelope}
  */
 export function decideDeterministicAction(civling, world) {
+  const reserveTarget = Math.max(
+    GAME_RULES.food.reserveMinimum,
+    world.civlings.length * GAME_RULES.food.reservePerAliveCivling
+  );
+
   if (civling.energy <= 20) {
     return { action: ACTIONS.REST, reason: 'low_energy' };
   }
 
-  if (civling.hunger >= 65 || world.resources.food <= 2) {
+  if (civling.hunger >= 65 || world.resources.food <= reserveTarget) {
     return { action: ACTIONS.GATHER_FOOD, reason: 'food_pressure' };
   }
 
-  if (world.resources.shelterCapacity < Math.ceil(world.civlings.length / 2) && world.resources.wood >= 3) {
+  if (
+    world.resources.shelterCapacity < world.civlings.length &&
+    world.resources.wood >= GAME_RULES.shelter.woodCostPerUnit
+  ) {
     return { action: ACTIONS.BUILD_SHELTER, reason: 'insufficient_shelter' };
   }
 

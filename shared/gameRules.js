@@ -1,0 +1,53 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const DEFAULT_GAME_RULES = Object.freeze({
+  food: {
+    reservePerAliveCivling: 4,
+    reserveMinimum: 6,
+    eatHungerThreshold: 60,
+    eatHungerRelief: 25,
+    eatEnergyGain: 8
+  },
+  shelter: {
+    woodCostPerUnit: 4,
+    capacityPerUnit: 2,
+    restEnergyBonusWhenSheltered: 8
+  },
+  survival: {
+    starvationHungerRiskThreshold: 70,
+    foodRiskThreshold: 0,
+    lowEnergyRiskThreshold: 20
+  },
+  reproduction: {
+    enabled: false,
+    requiresMaleAndFemale: true,
+    requiresShelterCapacityAvailable: true,
+    minAdultAge: 18
+  }
+});
+
+function mergeRules(overrides = {}) {
+  return {
+    food: { ...DEFAULT_GAME_RULES.food, ...(overrides.food ?? {}) },
+    shelter: { ...DEFAULT_GAME_RULES.shelter, ...(overrides.shelter ?? {}) },
+    survival: { ...DEFAULT_GAME_RULES.survival, ...(overrides.survival ?? {}) },
+    reproduction: { ...DEFAULT_GAME_RULES.reproduction, ...(overrides.reproduction ?? {}) }
+  };
+}
+
+export function loadGameRules() {
+  try {
+    const path = join(__dirname, '../config/game_rules.json');
+    const raw = readFileSync(path, 'utf-8');
+    return mergeRules(JSON.parse(raw));
+  } catch {
+    return mergeRules();
+  }
+}
+
+export const GAME_RULES = Object.freeze(loadGameRules());

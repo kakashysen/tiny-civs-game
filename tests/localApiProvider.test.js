@@ -128,6 +128,39 @@ describe('LocalApiProvider decideAction', () => {
     expect(action.source).toBe('local_api_adjusted');
   });
 
+  it('overrides build_shelter when shelter is already sufficient', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"build_shelter","reason":"Need safety."}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.shelterCapacity = 2;
+
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).toBe(ACTIONS.EXPLORE);
+    expect(action.source).toBe('local_api_adjusted');
+  });
+
   it('falls back to rest on persistent failure', async () => {
     vi.stubGlobal(
       'fetch',

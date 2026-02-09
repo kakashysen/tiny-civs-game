@@ -5,6 +5,7 @@ const metricsEl = document.getElementById('metricsList');
 const runHistoryEl = document.getElementById('runHistory');
 const thoughtLogEl = document.getElementById('thoughtLog');
 const llmExchangeLogEl = document.getElementById('llmExchangeLog');
+const actionChartEl = document.getElementById('actionChart');
 const civlingStatsEl = document.getElementById('civlingStats');
 const worldCanvasEl = document.getElementById('worldCanvas');
 const startBtn = document.getElementById('startBtn');
@@ -96,6 +97,56 @@ function setLlmExchangeLog(llmExchangeLog) {
     .join('');
 }
 
+function setActionChart(civlings, thoughtLog, runId) {
+  if (!civlings.length) {
+    actionChartEl.innerHTML = '<p>No civlings in world.</p>';
+    return;
+  }
+
+  const rows = [];
+  const actions = [
+    'gather_food',
+    'gather_wood',
+    'build_shelter',
+    'rest',
+    'explore'
+  ];
+  const runThoughts = thoughtLog.filter((entry) => entry.runId === runId);
+
+  for (const civling of civlings) {
+    const civThoughts = runThoughts.filter(
+      (entry) => entry.civlingId === civling.id
+    );
+    const counts = new Map(actions.map((action) => [action, 0]));
+    for (const entry of civThoughts) {
+      counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
+    }
+    const maxCount = Math.max(
+      1,
+      ...actions.map((action) => counts.get(action) ?? 0)
+    );
+
+    const actionRows = actions
+      .map((action) => {
+        const count = counts.get(action) ?? 0;
+        const width = Math.round((count / maxCount) * 100);
+        return `<div class="action-row">
+          <div class="action-label">${action.replace('_', ' ')}</div>
+          <div class="action-bar-track"><div class="action-bar-fill" style="width:${width}%"></div></div>
+          <div class="action-count">${count}</div>
+        </div>`;
+      })
+      .join('');
+
+    rows.push(`<div class="action-civling">
+      <p class="action-civling-title">${civling.name}</p>
+      ${actionRows}
+    </div>`);
+  }
+
+  actionChartEl.innerHTML = `<div class="action-chart">${rows.join('')}</div>`;
+}
+
 function setCivlingStats(civlings, thoughtLog) {
   if (!civlings.length) {
     civlingStatsEl.innerHTML = '<p>No civlings in world.</p>';
@@ -111,7 +162,8 @@ function setCivlingStats(civlings, thoughtLog) {
 
   const rows = civlings
     .map((civling) => {
-      const lastMemory = civling.memory[civling.memory.length - 1] ?? 'No recent action';
+      const lastMemory =
+        civling.memory[civling.memory.length - 1] ?? 'No recent action';
       const latestAction = latestActionByCivlingId.get(civling.id);
       const actionNow = latestAction
         ? `${latestAction.action} (${latestAction.source})${latestAction.fallback ? ' fallback' : ''}`
@@ -175,7 +227,9 @@ function upsertCivlings(world) {
     }
 
     mesh.position.set(civling.x, civling.y, 0);
-    mesh.material.color.setHex(civling.status === 'alive' ? 0x8cc84b : 0x6b7680);
+    mesh.material.color.setHex(
+      civling.status === 'alive' ? 0x8cc84b : 0x6b7680
+    );
   }
 }
 
@@ -184,11 +238,19 @@ function renderFrame() {
   requestAnimationFrame(renderFrame);
 }
 
-function onState(world, provider, runHistory, thoughtLog, llmExchangeLog, error) {
+function onState(
+  world,
+  provider,
+  runHistory,
+  thoughtLog,
+  llmExchangeLog,
+  error
+) {
   setMetrics(world, provider);
   setRunHistory(runHistory);
   setThoughtLog(thoughtLog);
   setLlmExchangeLog(llmExchangeLog);
+  setActionChart(world.civlings, thoughtLog, world.runId);
   setCivlingStats(world.civlings, thoughtLog);
   upsertCivlings(world);
 
@@ -301,12 +363,15 @@ async function bootstrap() {
   initControls();
   bindResize();
 
-  window.tinyCivs.onTick(({ world, provider, runHistory, thoughtLog, llmExchangeLog, error }) =>
-    onState(world, provider, runHistory, thoughtLog, llmExchangeLog, error)
+  window.tinyCivs.onTick(
+    ({ world, provider, runHistory, thoughtLog, llmExchangeLog, error }) =>
+      onState(world, provider, runHistory, thoughtLog, llmExchangeLog, error)
   );
 
   const initial = await window.tinyCivs.getState();
-  civlingCountInput.value = String(initial.desiredCivlingCount ?? initial.world.civlings.length);
+  civlingCountInput.value = String(
+    initial.desiredCivlingCount ?? initial.world.civlings.length
+  );
   onState(
     initial.world,
     initial.provider,

@@ -27,6 +27,7 @@ body {
     'controls metrics world'
     'history thoughts world'
     'llm llm world'
+    'actions actions world'
     'civlings civlings world';
   gap: 16px;
 }
@@ -53,6 +54,10 @@ body {
 
 .llm {
   grid-area: llm;
+}
+
+.actions {
+  grid-area: actions;
 }
 
 .civlings {
@@ -168,6 +173,57 @@ button:hover {
   overflow: auto;
 }
 
+.action-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.action-civling {
+  border: 1px solid #2b3944;
+  border-radius: 8px;
+  padding: 8px;
+  background: #111a21;
+}
+
+.action-civling-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #c8d9e8;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 38px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.action-label {
+  color: #9fc0d6;
+  text-transform: capitalize;
+}
+
+.action-bar-track {
+  height: 12px;
+  border-radius: 999px;
+  background: #0f171d;
+  border: 1px solid #273643;
+  overflow: hidden;
+}
+
+.action-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8cc84b, #6db0ff);
+}
+
+.action-count {
+  text-align: right;
+  color: #d3dee8;
+}
+
 .civling-table {
   width: 100%;
   border-collapse: collapse;
@@ -208,6 +264,7 @@ button:hover {
       'history'
       'thoughts'
       'llm'
+      'actions'
       'civlings'
       'world';
   }

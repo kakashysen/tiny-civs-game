@@ -1,4 +1,5 @@
 import { ACTIONS } from '../../shared/constants.js';
+import { GAME_RULES } from '../../shared/gameRules.js';
 import { decideDeterministicAction } from './deterministicProvider.js';
 import { buildDecisionPrompt } from '../prompts/buildDecisionPrompt.js';
 
@@ -12,7 +13,10 @@ function fallbackEnvelope(reason) {
 function tryParseEnvelope(value) {
   try {
     const parsed = JSON.parse(value);
-    if (typeof parsed?.action === 'string' && typeof parsed?.reason === 'string') {
+    if (
+      typeof parsed?.action === 'string' &&
+      typeof parsed?.reason === 'string'
+    ) {
       return parsed;
     }
     return null;
@@ -88,8 +92,13 @@ function clip(text, max = 1200) {
 function applyAntiLoopPolicy(civling, world, envelope) {
   const isGatherFood = envelope.action === ACTIONS.GATHER_FOOD;
   const lowHunger = civling.hunger <= 45;
-  const aliveCivlings = world.civlings.filter((item) => item.status === 'alive').length;
-  const reserveTarget = Math.max(6, aliveCivlings * 4);
+  const aliveCivlings = world.civlings.filter(
+    (item) => item.status === 'alive'
+  ).length;
+  const reserveTarget = Math.max(
+    GAME_RULES.food.reserveMinimum,
+    aliveCivlings * GAME_RULES.food.reservePerAliveCivling
+  );
   const foodStockHealthy = world.resources.food >= reserveTarget;
   const recentGatherCount = civling.memory
     .slice(-3)
@@ -117,8 +126,11 @@ function applyAntiLoopPolicy(civling, world, envelope) {
  * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
  */
 function applySurvivalPolicy(civling, world, envelope) {
-  const starvationRisk = civling.hunger >= 70 || world.resources.food <= 0;
-  const energyRisk = civling.energy <= 20;
+  const starvationRisk =
+    civling.hunger >= GAME_RULES.survival.starvationHungerRiskThreshold ||
+    world.resources.food <= GAME_RULES.survival.foodRiskThreshold;
+  const energyRisk =
+    civling.energy <= GAME_RULES.survival.lowEnergyRiskThreshold;
   const notSurvivalAction =
     envelope.action !== ACTIONS.GATHER_FOOD && envelope.action !== ACTIONS.REST;
 
@@ -131,6 +143,29 @@ function applySurvivalPolicy(civling, world, envelope) {
     };
   }
 
+  return envelope;
+}
+
+/**
+ * Prevent unnecessary shelter overbuilding when capacity already covers population.
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applyShelterNeedPolicy(world, envelope) {
+  const aliveCount = world.civlings.filter(
+    (item) => item.status === 'alive'
+  ).length;
+  const shelterNeeded = Math.max(
+    0,
+    aliveCount - world.resources.shelterCapacity
+  );
+  if (envelope.action === ACTIONS.BUILD_SHELTER && shelterNeeded <= 0) {
+    return {
+      action: ACTIONS.EXPLORE,
+      reason: `shelter_not_needed_override:${envelope.reason}`,
+      source: 'local_api_adjusted'
+    };
+  }
   return envelope;
 }
 
@@ -184,7 +219,7 @@ export class LocalApiProvider {
 
         const basePayload = {
           model: this.model,
-          temperature: 0.2,
+          temperature: 0.8,
           messages: [
             {
               role: 'system',
@@ -230,7 +265,9 @@ export class LocalApiProvider {
         const body = await response.json();
         const content = body?.choices?.[0]?.message?.content;
         lastRawResponse =
-          typeof content === 'string' ? content : JSON.stringify(content ?? '', null, 2);
+          typeof content === 'string'
+            ? content
+            : JSON.stringify(content ?? '', null, 2);
         let envelope = extractEnvelope(content);
         if (!envelope && typeof content === 'string') {
           envelope = extractPartialEnvelope(content);
@@ -238,6 +275,7 @@ export class LocalApiProvider {
         if (envelope && Object.values(ACTIONS).includes(envelope.action)) {
           let adjusted = applyAntiLoopPolicy(civling, world, envelope);
           adjusted = applySurvivalPolicy(civling, world, adjusted);
+          adjusted = applyShelterNeedPolicy(world, adjusted);
           return {
             ...adjusted,
             source: adjusted.source ?? 'local_api',

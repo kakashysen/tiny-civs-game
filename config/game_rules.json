@@ -1,0 +1,25 @@
+{
+  "food": {
+    "reservePerAliveCivling": 4,
+    "reserveMinimum": 6,
+    "eatHungerThreshold": 60,
+    "eatHungerRelief": 25,
+    "eatEnergyGain": 8
+  },
+  "shelter": {
+    "woodCostPerUnit": 4,
+    "capacityPerUnit": 2,
+    "restEnergyBonusWhenSheltered": 8
+  },
+  "survival": {
+    "starvationHungerRiskThreshold": 70,
+    "foodRiskThreshold": 0,
+    "lowEnergyRiskThreshold": 20
+  },
+  "reproduction": {
+    "enabled": false,
+    "requiresMaleAndFemale": true,
+    "requiresShelterCapacityAvailable": true,
+    "minAdultAge": 18
+  }
+}

@@ -44,6 +44,17 @@ describe('simulation engine', () => {
     expect(world.resources.food).toBeGreaterThanOrEqual(2);
   });
 
+  it('build shelter uses configured wood cost and capacity gain', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.wood = 4;
+    world.resources.shelterCapacity = 0;
+
+    await runTick(world, () => ({ action: ACTIONS.BUILD_SHELTER, reason: 'test' }));
+
+    expect(world.resources.wood).toBe(0);
+    expect(world.resources.shelterCapacity).toBe(2);
+  });
+
   it('marks extinction when everyone starts dead', async () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.civlings[0].status = 'dead';
