@@ -2,6 +2,17 @@ import { ACTIONS } from '../../shared/constants.js';
 import { GAME_RULES } from '../../shared/gameRules.js';
 
 /**
+ * Returns shelter target including one free slot for reproduction when required.
+ * @param {number} aliveCivlings
+ * @returns {number}
+ */
+function getShelterTarget(aliveCivlings) {
+  const needsReproductionSlot =
+    GAME_RULES.reproduction.enabled && GAME_RULES.reproduction.requiresShelterCapacityAvailable;
+  return aliveCivlings + (needsReproductionSlot ? 1 : 0);
+}
+
+/**
  * Calculates reproduction readiness for the current civling.
  * @param {import('../../shared/types.js').Civling} civling
  * @param {import('../../shared/types.js').WorldState} world
@@ -10,20 +21,23 @@ import { GAME_RULES } from '../../shared/gameRules.js';
  */
 function getReproductionContext(civling, world, aliveCivlings, reserveTarget) {
   const rules = GAME_RULES.reproduction;
+  const shelterTarget = getShelterTarget(aliveCivlings);
+  const firstAttemptUrgent =
+    civling.age >= rules.minAdultAge + 8 && (civling.reproductionAttempts ?? 0) === 0;
   if (!rules.enabled) {
-    return { canReproduceNow: false, reason: 'disabled' };
+    return { canReproduceNow: false, reason: 'disabled', firstAttemptUrgent };
   }
   if (civling.age < rules.minAdultAge) {
-    return { canReproduceNow: false, reason: 'underage' };
+    return { canReproduceNow: false, reason: 'underage', firstAttemptUrgent };
   }
-  if (civling.energy < 60 || civling.hunger > 55) {
-    return { canReproduceNow: false, reason: 'low_vitals' };
+  if (civling.energy < 45 || civling.hunger > 70) {
+    return { canReproduceNow: false, reason: 'low_vitals', firstAttemptUrgent };
   }
-  if (world.resources.food < reserveTarget) {
-    return { canReproduceNow: false, reason: 'food_reserve_low' };
+  if (world.resources.food < Math.max(GAME_RULES.food.reserveMinimum, reserveTarget - 2)) {
+    return { canReproduceNow: false, reason: 'food_reserve_low', firstAttemptUrgent };
   }
-  if (rules.requiresShelterCapacityAvailable && world.resources.shelterCapacity <= aliveCivlings) {
-    return { canReproduceNow: false, reason: 'no_shelter_capacity' };
+  if (rules.requiresShelterCapacityAvailable && world.resources.shelterCapacity < shelterTarget) {
+    return { canReproduceNow: false, reason: 'no_shelter_capacity', firstAttemptUrgent };
   }
   const partnerExists = world.civlings.some(
     (item) =>
@@ -33,9 +47,9 @@ function getReproductionContext(civling, world, aliveCivlings, reserveTarget) {
       (rules.requiresMaleAndFemale ? item.gender !== civling.gender : true)
   );
   if (!partnerExists) {
-    return { canReproduceNow: false, reason: 'no_eligible_partner' };
+    return { canReproduceNow: false, reason: 'no_eligible_partner', firstAttemptUrgent };
   }
-  return { canReproduceNow: true, reason: 'ready' };
+  return { canReproduceNow: true, reason: 'ready', firstAttemptUrgent };
 }
 
 /**
@@ -50,6 +64,7 @@ export function buildDecisionPrompt(civling, world) {
     GAME_RULES.food.reserveMinimum,
     aliveCivlings * GAME_RULES.food.reservePerAliveCivling
   );
+  const shelterTarget = getShelterTarget(aliveCivlings);
   const reproduction = getReproductionContext(civling, world, aliveCivlings, reserveTarget);
   const payload = {
     runId: world.runId,
@@ -62,6 +77,7 @@ export function buildDecisionPrompt(civling, world) {
       hunger: civling.hunger,
       age: civling.age,
       gender: civling.gender,
+      reproductionAttempts: civling.reproductionAttempts ?? 0,
       memory: civling.memory.slice(-3)
     },
     world: {
@@ -69,7 +85,8 @@ export function buildDecisionPrompt(civling, world) {
       foodReserveTarget: reserveTarget,
       wood: world.resources.wood,
       shelterCapacity: world.resources.shelterCapacity,
-      shelterNeeded: Math.max(0, aliveCivlings - world.resources.shelterCapacity),
+      shelterTarget,
+      shelterNeeded: Math.max(0, shelterTarget - world.resources.shelterCapacity),
       aliveCivlings,
       milestones: world.milestones
     },
@@ -97,6 +114,7 @@ export function buildDecisionPrompt(civling, world) {
     'Hard rule: choose reproduce only if reproduction.canReproduceNow is true.',
     'Hard rule: when reproduction.canReproduceNow is false, do not choose reproduce.',
     'Rules: if reproduction.canReproduceNow is true and no urgent risk exists, prefer reproduce over explore.',
+    'Rules: if reproduction.firstAttemptUrgent is true and reproduction.canReproduceNow is true, prioritize reproduce over gather_wood/explore.',
     'Return JSON only with shape: {"action":"<allowed_action>","reason":"short string"}.',
     `Simulation context: ${JSON.stringify(payload)}`
   ].join('\n');

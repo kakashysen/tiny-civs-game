@@ -155,9 +155,14 @@ function applyShelterNeedPolicy(world, envelope) {
   const aliveCount = world.civlings.filter(
     (item) => item.status === 'alive'
   ).length;
+  const shelterTarget = aliveCount + (
+    GAME_RULES.reproduction.enabled && GAME_RULES.reproduction.requiresShelterCapacityAvailable
+      ? 1
+      : 0
+  );
   const shelterNeeded = Math.max(
     0,
-    aliveCount - world.resources.shelterCapacity
+    shelterTarget - world.resources.shelterCapacity
   );
   if (envelope.action === ACTIONS.BUILD_SHELTER && shelterNeeded <= 0) {
     return {
@@ -185,9 +190,14 @@ function applyReproductionPolicy(civling, world, envelope) {
     GAME_RULES.food.reserveMinimum,
     aliveCivlings.length * GAME_RULES.food.reservePerAliveCivling
   );
+  const shelterTarget = aliveCivlings.length + (
+    GAME_RULES.reproduction.enabled && GAME_RULES.reproduction.requiresShelterCapacityAvailable
+      ? 1
+      : 0
+  );
   const shelterReady =
     !GAME_RULES.reproduction.requiresShelterCapacityAvailable ||
-    world.resources.shelterCapacity > aliveCivlings.length;
+    world.resources.shelterCapacity >= shelterTarget;
   const partnerExists = aliveCivlings.some(
     (item) =>
       item.id !== civling.id &&
@@ -196,9 +206,9 @@ function applyReproductionPolicy(civling, world, envelope) {
   );
   const ready =
     civling.age >= GAME_RULES.reproduction.minAdultAge &&
-    civling.energy >= 60 &&
-    civling.hunger <= 55 &&
-    world.resources.food >= reserveTarget &&
+    civling.energy >= 45 &&
+    civling.hunger <= 70 &&
+    world.resources.food >= Math.max(GAME_RULES.food.reserveMinimum, reserveTarget - 2) &&
     shelterReady &&
     partnerExists;
 
