@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ACTIONS, TIME } from '../shared/constants.js';
+import { ACTIONS, MILESTONES, TIME } from '../shared/constants.js';
 import { GAME_RULES } from '../shared/gameRules.js';
 import { createInitialWorldState, runTick } from '../simulation/engine.js';
 
@@ -82,6 +82,89 @@ describe('simulation engine', () => {
     expect(world.civlings[0].currentTask).toBeNull();
     expect(world.civlings[0].hunger).toBeLessThan(hungerBeforeFinish);
     expect(world.resources.food).toBe(2);
+  });
+
+  it('tracks shelter build attempts, successes, and failures separately', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.wood = 4;
+
+    await runTick(world, () => ({
+      action: ACTIONS.BUILD_SHELTER,
+      reason: 'test'
+    }));
+    await runTicks(world, ACTIONS.REST, 5);
+
+    expect(world.civlings[0].shelterBuildAttempts).toBe(1);
+    expect(world.civlings[0].shelterBuildSuccesses).toBe(1);
+    expect(world.civlings[0].shelterBuildFailures).toBe(0);
+
+    world.resources.wood = 0;
+    world.civlings[0].currentTask = null;
+    await runTick(world, () => ({
+      action: ACTIONS.BUILD_SHELTER,
+      reason: 'test'
+    }));
+    await runTicks(world, ACTIONS.REST, 5);
+
+    expect(world.civlings[0].shelterBuildAttempts).toBe(2);
+    expect(world.civlings[0].shelterBuildSuccesses).toBe(1);
+    expect(world.civlings[0].shelterBuildFailures).toBe(1);
+  });
+
+  it('restores health at night when fire milestone exists and civling is sheltered', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.milestones.push(MILESTONES.FIRE);
+    world.resources.shelterCapacity = 1;
+    world.environment.weather = 'cold';
+    world.environment.nightTemperature = 'cold';
+    world.time.phase = 'night';
+    world.time.minuteOfDay = TIME.NIGHT_START_MINUTE;
+    world.civlings[0].health = 50;
+    world.civlings[0].hunger = 20;
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.civlings[0].health).toBeGreaterThan(50);
+  });
+
+  it('restores health after eating when agriculture milestone exists', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.milestones.push(MILESTONES.AGRICULTURE);
+    world.civlings[0].health = 60;
+    world.civlings[0].hunger = 35;
+    world.resources.food = 4;
+    world.civlings[0].currentTask = {
+      action: ACTIONS.EAT,
+      totalMinutes: 10,
+      remainingMinutes: 10,
+      startedAtTick: world.tick
+    };
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.civlings[0].health).toBeGreaterThan(60);
+  });
+
+  it('unlocks care action only after tools milestone', async () => {
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.civlings[1].health = 40;
+    const decisionLog = [];
+
+    await runTick(world, () => ({ action: ACTIONS.CARE, reason: 'test' }), {
+      onDecision: (entry) => decisionLog.push(entry)
+    });
+
+    expect(decisionLog[0].action).toBe(ACTIONS.REST);
+    expect(world.civlings[0].currentTask?.action).toBe(ACTIONS.REST);
+
+    world.milestones.push(MILESTONES.TOOLS);
+    world.civlings[0].currentTask = null;
+    await runTick(world, () => ({ action: ACTIONS.CARE, reason: 'test' }), {
+      onDecision: (entry) => decisionLog.push(entry)
+    });
+    await runTicks(world, ACTIONS.REST, 4);
+
+    expect(world.civlings[1].health).toBeGreaterThan(40);
   });
 
   it('can kill exposed civlings during snowy weather', async () => {

@@ -22,5 +22,12 @@
     "requiresShelterCapacityAvailable": true,
     "minAdultAge": 18,
     "conceptionChance": 0.35
+  },
+  "healing": {
+    "fireNightShelterHeal": 2,
+    "agricultureNutritionHeal": 2,
+    "agricultureHungerThreshold": 40,
+    "careMinEnergy": 30,
+    "careMaxHunger": 75
   }
 }

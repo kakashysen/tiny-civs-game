@@ -2,6 +2,7 @@ export const ACTIONS = Object.freeze({
   PLAY: 'play',
   LEARN: 'learn',
   EAT: 'eat',
+  CARE: 'care',
   GATHER_FOOD: 'gather_food',
   GATHER_WOOD: 'gather_wood',
   BUILD_SHELTER: 'build_shelter',
@@ -19,6 +20,12 @@ export const ACTION_VALUES = Object.freeze({
     hungerDelta: 3
   },
   [ACTIONS.EAT]: { hungerDelta: -25, energyGain: 8 },
+  [ACTIONS.CARE]: {
+    energyCost: 2,
+    hungerDelta: 3,
+    healTarget: 18,
+    healSelf: 4
+  },
   [ACTIONS.GATHER_FOOD]: { food: 2, energyCost: 2, hungerDelta: 4 },
   [ACTIONS.GATHER_WOOD]: { wood: 2, energyCost: 2, hungerDelta: 4 },
   [ACTIONS.BUILD_SHELTER]: {
@@ -47,6 +54,7 @@ export const ADULT_ALLOWED_ACTIONS = Object.freeze([
   ACTIONS.GATHER_FOOD,
   ACTIONS.GATHER_WOOD,
   ACTIONS.BUILD_SHELTER,
+  ACTIONS.CARE,
   ACTIONS.REST,
   ACTIONS.EXPLORE,
   ACTIONS.REPRODUCE
@@ -56,6 +64,7 @@ export const ACTION_DURATION_MINUTES = Object.freeze({
   [ACTIONS.PLAY]: 20,
   [ACTIONS.LEARN]: 30,
   [ACTIONS.EAT]: 10,
+  [ACTIONS.CARE]: 40,
   [ACTIONS.GATHER_FOOD]: 20,
   [ACTIONS.GATHER_WOOD]: [3, 5],
   [ACTIONS.BUILD_SHELTER]: 50,
@@ -65,7 +74,7 @@ export const ACTION_DURATION_MINUTES = Object.freeze({
 });
 
 export const TIME = Object.freeze({
-  MINUTES_PER_TICK: 10,
+  MINUTES_PER_TICK: 30,
   MINUTES_PER_DAY: 24 * 60,
   DAYS_PER_MONTH: 30,
   MONTHS_PER_YEAR: 12,

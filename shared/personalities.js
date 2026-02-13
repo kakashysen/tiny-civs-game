@@ -11,6 +11,7 @@ const ARCHETYPES = Object.freeze([
       [ACTIONS.GATHER_FOOD]: 1.35,
       [ACTIONS.GATHER_WOOD]: 1.1,
       [ACTIONS.BUILD_SHELTER]: 1.2,
+      [ACTIONS.CARE]: 1.25,
       [ACTIONS.REST]: 0.9,
       [ACTIONS.EXPLORE]: 0.7,
       [ACTIONS.REPRODUCE]: 1.0
@@ -26,6 +27,7 @@ const ARCHETYPES = Object.freeze([
       [ACTIONS.GATHER_FOOD]: 0.9,
       [ACTIONS.GATHER_WOOD]: 0.9,
       [ACTIONS.BUILD_SHELTER]: 0.8,
+      [ACTIONS.CARE]: 0.8,
       [ACTIONS.REST]: 0.7,
       [ACTIONS.EXPLORE]: 1.45,
       [ACTIONS.REPRODUCE]: 1.1
@@ -41,6 +43,7 @@ const ARCHETYPES = Object.freeze([
       [ACTIONS.GATHER_FOOD]: 0.95,
       [ACTIONS.GATHER_WOOD]: 1.35,
       [ACTIONS.BUILD_SHELTER]: 1.45,
+      [ACTIONS.CARE]: 0.9,
       [ACTIONS.REST]: 0.85,
       [ACTIONS.EXPLORE]: 0.75,
       [ACTIONS.REPRODUCE]: 0.95
@@ -56,6 +59,7 @@ const ARCHETYPES = Object.freeze([
       [ACTIONS.GATHER_FOOD]: 1.25,
       [ACTIONS.GATHER_WOOD]: 0.9,
       [ACTIONS.BUILD_SHELTER]: 1.1,
+      [ACTIONS.CARE]: 1.45,
       [ACTIONS.REST]: 1.0,
       [ACTIONS.EXPLORE]: 0.65,
       [ACTIONS.REPRODUCE]: 1.25
@@ -71,6 +75,7 @@ const ARCHETYPES = Object.freeze([
       [ACTIONS.GATHER_FOOD]: 1.0,
       [ACTIONS.GATHER_WOOD]: 1.0,
       [ACTIONS.BUILD_SHELTER]: 1.0,
+      [ACTIONS.CARE]: 1.0,
       [ACTIONS.REST]: 0.85,
       [ACTIONS.EXPLORE]: 1.2,
       [ACTIONS.REPRODUCE]: 1.1
@@ -86,6 +91,7 @@ const ARCHETYPES = Object.freeze([
       [ACTIONS.GATHER_FOOD]: 1.2,
       [ACTIONS.GATHER_WOOD]: 1.0,
       [ACTIONS.BUILD_SHELTER]: 1.15,
+      [ACTIONS.CARE]: 1.2,
       [ACTIONS.REST]: 1.05,
       [ACTIONS.EXPLORE]: 0.7,
       [ACTIONS.REPRODUCE]: 0.9

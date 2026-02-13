@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createInitialWorldState, runTick } from '../../simulation/engine.js';
 import { writeSnapshot } from '../../simulation/snapshotStore.js';
 import { readConfig } from '../../shared/config.js';
+import { GAME_RULES } from '../../shared/gameRules.js';
 import { createProvider } from '../../ai/providerFactory.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -65,6 +66,7 @@ function sendTick(extra = {}) {
   mainWindow?.webContents.send('sim:tick', {
     world,
     provider: config.AI_PROVIDER,
+    shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
     runHistory,
     thoughtLog,
     llmExchangeLog,
@@ -102,59 +104,62 @@ async function tickOnce() {
   tickInFlight = true;
 
   try {
-  world = await runTick(
-    world,
-    async (civling, state) => {
-      const decision = await provider.decideAction(civling, state);
-      return {
-        ...decision,
-        source: decision?.source ?? config.AI_PROVIDER
-      };
-    },
-    {
-      onDecision: (entry) => {
-        pushThought({
-          runId: world.runId,
-          tick: entry.tick,
-          civlingId: entry.civlingId,
-          civlingName: entry.civlingName,
-          action: entry.action,
-          reason: entry.reason,
-          source: entry.source,
-          fallback: entry.fallback
-        });
-        if (entry.llmTrace) {
-          pushLlmExchange({
+    world = await runTick(
+      world,
+      async (civling, state) => {
+        const decision = await provider.decideAction(civling, state);
+        return {
+          ...decision,
+          source: decision?.source ?? config.AI_PROVIDER
+        };
+      },
+      {
+        onDecision: (entry) => {
+          pushThought({
             runId: world.runId,
             tick: entry.tick,
             civlingId: entry.civlingId,
             civlingName: entry.civlingName,
-            prompt: entry.llmTrace.prompt,
-            response: entry.llmTrace.response,
-            status: entry.llmTrace.status
+            action: entry.action,
+            reason: entry.reason,
+            source: entry.source,
+            fallback: entry.fallback
           });
+          if (entry.llmTrace) {
+            pushLlmExchange({
+              runId: world.runId,
+              tick: entry.tick,
+              civlingId: entry.civlingId,
+              civlingName: entry.civlingName,
+              prompt: entry.llmTrace.prompt,
+              response: entry.llmTrace.response,
+              status: entry.llmTrace.status
+            });
+          }
         }
       }
+    );
+
+    if (
+      world.tick % config.SIM_SNAPSHOT_EVERY_TICKS === 0 ||
+      world.extinction.ended
+    ) {
+      await writeSnapshot(runsDir(), world);
     }
-  );
 
-  if (world.tick % config.SIM_SNAPSHOT_EVERY_TICKS === 0 || world.extinction.ended) {
-    await writeSnapshot(runsDir(), world);
-  }
+    sendTick();
 
-  sendTick();
+    if (world.extinction.ended) {
+      stopSimulation();
+      archiveCurrentRun();
 
-  if (world.extinction.ended) {
-    stopSimulation();
-    archiveCurrentRun();
-
-    if (config.SIM_AUTO_RESTART) {
-      restartTimer = setTimeout(() => {
-        restartCivilization();
-        startSimulation();
-      }, config.SIM_RESTART_DELAY_MS);
+      if (config.SIM_AUTO_RESTART) {
+        restartTimer = setTimeout(() => {
+          restartCivilization();
+          startSimulation();
+        }, config.SIM_RESTART_DELAY_MS);
+      }
     }
-  }
   } finally {
     tickInFlight = false;
   }
@@ -213,6 +218,7 @@ app.whenReady().then(() => {
   ipcMain.handle('sim:get-state', () => ({
     world,
     provider: config.AI_PROVIDER,
+    shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
     runHistory,
     thoughtLog,
     llmExchangeLog,
@@ -231,6 +237,7 @@ app.whenReady().then(() => {
     return {
       world,
       provider: config.AI_PROVIDER,
+      shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
       runHistory,
       thoughtLog,
       llmExchangeLog,
@@ -262,6 +269,7 @@ app.whenReady().then(() => {
     return {
       world,
       provider: config.AI_PROVIDER,
+      shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
       runHistory,
       thoughtLog,
       llmExchangeLog,

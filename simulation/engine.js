@@ -48,6 +48,9 @@ function isExposedToWeather(civling, world) {
     return true;
   }
   const action = civling.currentTask?.action;
+  if (!action) {
+    return false;
+  }
   return (
     action !== ACTIONS.REST &&
     action !== ACTIONS.BUILD_SHELTER &&
@@ -72,14 +75,45 @@ function isYoungCivling(civling) {
 }
 
 /**
+ * Returns true when a milestone is unlocked.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {string} milestone
+ * @returns {boolean}
+ */
+function hasMilestone(world, milestone) {
+  return world.milestones.includes(milestone);
+}
+
+/**
+ * Returns whether this civling can use care action.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {boolean}
+ */
+function canUseCareAction(world, civling) {
+  return (
+    !isYoungCivling(civling) &&
+    hasMilestone(world, MILESTONES.TOOLS) &&
+    civling.energy >= GAME_RULES.healing.careMinEnergy &&
+    civling.hunger <= GAME_RULES.healing.careMaxHunger
+  );
+}
+
+/**
  * Returns age-appropriate allowed actions for a civling.
  * @param {import('../shared/types.js').Civling} civling
  * @returns {readonly string[]}
  */
-export function getAllowedActionsForCivling(civling) {
-  return isYoungCivling(civling)
+export function getAllowedActionsForCivling(civling, world = null) {
+  const base = isYoungCivling(civling)
     ? YOUNG_ALLOWED_ACTIONS
     : ADULT_ALLOWED_ACTIONS;
+  if (!world || !base.includes(ACTIONS.CARE)) {
+    return base;
+  }
+  return canUseCareAction(world, civling)
+    ? base
+    : base.filter((action) => action !== ACTIONS.CARE);
 }
 
 /**
@@ -88,11 +122,11 @@ export function getAllowedActionsForCivling(civling) {
  * @param {string|undefined} requestedAction
  * @returns {string}
  */
-function resolveCivlingAction(civling, requestedAction) {
+function resolveCivlingAction(world, civling, requestedAction) {
   if (requestedAction === ACTIONS.EAT) {
     return ACTIONS.EAT;
   }
-  const allowed = getAllowedActionsForCivling(civling);
+  const allowed = getAllowedActionsForCivling(civling, world);
   if (requestedAction && allowed.includes(requestedAction)) {
     return requestedAction;
   }
@@ -251,6 +285,24 @@ function maybeStartEatTask(world, civling) {
 }
 
 /**
+ * Finds an injured civling to receive care.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} caregiver
+ * @returns {import('../shared/types.js').Civling|null}
+ */
+function findCareTarget(world, caregiver) {
+  const injured = getAliveCivlings(world)
+    .filter((candidate) => candidate.health < 100)
+    .sort((left, right) => left.health - right.health);
+  if (!injured.length) {
+    return null;
+  }
+  return (
+    injured.find((candidate) => candidate.id !== caregiver.id) ?? injured[0]
+  );
+}
+
+/**
  * Creates a full civling object with randomized personality traits.
  * @param {Object} options
  * @param {string} options.id
@@ -288,6 +340,9 @@ function createCivling({
     foodEatenLastTick: 0,
     reproductionAttempts: 0,
     babiesBorn: 0,
+    shelterBuildAttempts: 0,
+    shelterBuildSuccesses: 0,
+    shelterBuildFailures: 0,
     babyChance,
     reproduceIntentTick: null,
     currentTask: null,
@@ -468,6 +523,22 @@ export function applyAction(world, civling, action) {
     }
   }
 
+  if (action === ACTIONS.CARE) {
+    const target = findCareTarget(world, civling);
+    updateVitals(civling, {
+      hungerDelta: values.hungerDelta,
+      energyDelta: -values.energyCost,
+      healthDelta: values.healSelf
+    });
+    if (target) {
+      target.health = clamp(target.health + values.healTarget, 0, 100);
+      addMemory(civling, `Provided care to ${target.name}.`);
+      addMemory(target, `Received care from ${civling.name}.`);
+    } else {
+      addMemory(civling, 'Prepared healing supplies, but nobody needed care.');
+    }
+  }
+
   if (action === ACTIONS.GATHER_FOOD) {
     world.resources.food += values.food;
     updateVitals(civling, {
@@ -487,13 +558,16 @@ export function applyAction(world, civling, action) {
   }
 
   if (action === ACTIONS.BUILD_SHELTER) {
+    civling.shelterBuildAttempts = (civling.shelterBuildAttempts ?? 0) + 1;
     const shelterWoodCost = GAME_RULES.shelter.woodCostPerUnit;
     const shelterCapacityGain = GAME_RULES.shelter.capacityPerUnit;
     if (world.resources.wood >= shelterWoodCost) {
       world.resources.wood -= shelterWoodCost;
       world.resources.shelterCapacity += shelterCapacityGain;
+      civling.shelterBuildSuccesses = (civling.shelterBuildSuccesses ?? 0) + 1;
       addMemory(civling, 'Expanded shelter.');
     } else {
+      civling.shelterBuildFailures = (civling.shelterBuildFailures ?? 0) + 1;
       addMemory(civling, 'Failed to build shelter (no wood).');
     }
     updateVitals(civling, {
@@ -596,6 +670,31 @@ function postTickWorldEffects(world) {
 
     if (civling.hunger >= 85) {
       civling.health = clamp(civling.health - 8, 0, 100);
+    }
+
+    const sheltered = !isExposedToWeather(civling, world);
+    if (
+      hasMilestone(world, MILESTONES.FIRE) &&
+      world.time.phase === 'night' &&
+      sheltered
+    ) {
+      civling.health = clamp(
+        civling.health + GAME_RULES.healing.fireNightShelterHeal,
+        0,
+        100
+      );
+    }
+
+    if (
+      hasMilestone(world, MILESTONES.AGRICULTURE) &&
+      civling.hunger <= GAME_RULES.healing.agricultureHungerThreshold &&
+      civling.foodEatenLastTick > 0
+    ) {
+      civling.health = clamp(
+        civling.health + GAME_RULES.healing.agricultureNutritionHeal,
+        0,
+        100
+      );
     }
 
     markDeadIfNeeded(civling);
@@ -769,7 +868,7 @@ export async function runTick(world, decideAction, options = {}) {
     const requestedAction = isValidAction(envelope?.action)
       ? envelope.action
       : undefined;
-    const action = resolveCivlingAction(civling, requestedAction);
+    const action = resolveCivlingAction(world, civling, requestedAction);
     if (action !== envelope?.action) {
       fallback = true;
     }

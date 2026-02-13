@@ -1,4 +1,4 @@
-import { ACTIONS } from '../../shared/constants.js';
+import { ACTIONS, MILESTONES } from '../../shared/constants.js';
 import { GAME_RULES } from '../../shared/gameRules.js';
 import { pickPersonalityAction } from '../../shared/personalities.js';
 
@@ -32,6 +32,8 @@ export function decideDeterministicAction(civling, world) {
     aliveCivlings.length * GAME_RULES.food.reservePerAliveCivling
   );
   const isAdult = civling.age >= GAME_RULES.reproduction.minAdultAge;
+  const careUnlocked = world.milestones.includes(MILESTONES.TOOLS);
+  const injuredExists = aliveCivlings.some((item) => item.health < 90);
   const shelterDeficit = shelterTarget - world.resources.shelterCapacity;
   const isSnowExposureRisk =
     world.environment.weather === 'snowy' && shelterDeficit > 0;
@@ -89,6 +91,21 @@ export function decideDeterministicAction(civling, world) {
     world.resources.wood >= GAME_RULES.shelter.woodCostPerUnit
   ) {
     return { action: ACTIONS.BUILD_SHELTER, reason: 'insufficient_shelter' };
+  }
+
+  if (
+    careUnlocked &&
+    isAdult &&
+    injuredExists &&
+    civling.energy >= GAME_RULES.healing.careMinEnergy &&
+    civling.hunger <= GAME_RULES.healing.careMaxHunger
+  ) {
+    const action = pickPersonalityAction(
+      civling,
+      [ACTIONS.CARE, ACTIONS.REST, ACTIONS.GATHER_FOOD],
+      ACTIONS.CARE
+    );
+    return { action, reason: 'tools_unlocked_community_care' };
   }
 
   if (world.resources.wood < 10) {

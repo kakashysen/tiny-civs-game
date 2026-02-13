@@ -1,6 +1,7 @@
 import {
   ACTIONS,
   ADULT_ALLOWED_ACTIONS,
+  MILESTONES,
   YOUNG_ALLOWED_ACTIONS
 } from '../../shared/constants.js';
 import { GAME_RULES } from '../../shared/gameRules.js';
@@ -271,6 +272,28 @@ function applyWeatherRiskPolicy(civling, world, envelope) {
 }
 
 /**
+ * Prevent care action before tools milestone is unlocked.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applyCareUnlockPolicy(civling, world, envelope) {
+  if (envelope.action !== ACTIONS.CARE) {
+    return envelope;
+  }
+  const careUnlocked = world.milestones.includes(MILESTONES.TOOLS);
+  if (careUnlocked) {
+    return envelope;
+  }
+  const alternative = decideDeterministicAction(civling, world);
+  return {
+    action: alternative.action,
+    reason: `care_locked_override:${envelope.reason}`,
+    source: 'local_api_adjusted'
+  };
+}
+
+/**
  * Enforces age-based action restrictions.
  * @param {import('../../shared/types.js').Civling} civling
  * @param {import('../../shared/types.js').WorldState} world
@@ -397,6 +420,7 @@ export class LocalApiProvider {
           let adjusted = applyAntiLoopPolicy(civling, world, envelope);
           adjusted = applySurvivalPolicy(civling, world, adjusted);
           adjusted = applyWeatherRiskPolicy(civling, world, adjusted);
+          adjusted = applyCareUnlockPolicy(civling, world, adjusted);
           adjusted = applyShelterNeedPolicy(world, adjusted);
           adjusted = applyReproductionPolicy(civling, world, adjusted);
           adjusted = applyAgePolicy(civling, world, adjusted);

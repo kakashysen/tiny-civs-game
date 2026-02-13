@@ -1,5 +1,7 @@
 import {
+  ACTIONS,
   ADULT_ALLOWED_ACTIONS,
+  MILESTONES,
   YOUNG_ALLOWED_ACTIONS
 } from '../../shared/constants.js';
 import { GAME_RULES } from '../../shared/gameRules.js';
@@ -81,6 +83,13 @@ function getReproductionContext(civling, world, aliveCivlings, reserveTarget) {
  */
 export function buildDecisionPrompt(civling, world) {
   const isYoung = civling.age < GAME_RULES.reproduction.minAdultAge;
+  const careUnlocked = world.milestones.includes(MILESTONES.TOOLS);
+  const allowedActionsBase = isYoung
+    ? YOUNG_ALLOWED_ACTIONS
+    : ADULT_ALLOWED_ACTIONS;
+  const allowedActions = careUnlocked
+    ? allowedActionsBase
+    : allowedActionsBase.filter((action) => action !== ACTIONS.CARE);
   const aliveCivlings = world.civlings.filter(
     (item) => item.status === 'alive'
   ).length;
@@ -128,10 +137,11 @@ export function buildDecisionPrompt(civling, world) {
     },
     rules: {
       shelter: GAME_RULES.shelter,
-      reproduction: GAME_RULES.reproduction
+      reproduction: GAME_RULES.reproduction,
+      healing: GAME_RULES.healing
     },
     reproduction,
-    allowedActions: isYoung ? YOUNG_ALLOWED_ACTIONS : ADULT_ALLOWED_ACTIONS
+    allowedActions
   };
 
   return [
@@ -156,6 +166,7 @@ export function buildDecisionPrompt(civling, world) {
     'Hard rule: when reproduction.canReproduceNow is false, do not choose reproduce.',
     'Hard rule: if civling is young, choose only play, learn, or rest.',
     'Hard rule: if civling is adult, do not choose play or learn.',
+    'Hard rule: choose care only when tools milestone is unlocked, at least one civling is injured, and civling vitals satisfy rules.healing thresholds.',
     'Rules: personality.actionBiases values > 1.0 indicate preferred actions and should influence your choice.',
     'Rules: keep your reason short and mention personality alignment when relevant.',
     'Rules: if reproduction.canReproduceNow is true and no urgent risk exists, prefer reproduce over explore.',

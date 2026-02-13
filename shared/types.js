@@ -41,6 +41,9 @@
  * @property {number} foodEatenLastTick
  * @property {number} reproductionAttempts
  * @property {number} babiesBorn
+ * @property {number} shelterBuildAttempts
+ * @property {number} shelterBuildSuccesses
+ * @property {number} shelterBuildFailures
  * @property {number} babyChance
  * @property {number|null} reproduceIntentTick
  * @property {CivlingTask|null} currentTask

@@ -33,8 +33,25 @@ function setStatus(message) {
   statusEl.textContent = `Status: ${message}`;
 }
 
-function setMetrics(world, provider) {
+function formatShelterUnits(shelterCapacity, shelterCapacityPerUnit) {
+  if (shelterCapacityPerUnit <= 0) {
+    return 'n/a';
+  }
+  const units = shelterCapacity / shelterCapacityPerUnit;
+  if (Number.isInteger(units)) {
+    return String(units);
+  }
+  return units.toFixed(1);
+}
+
+function setMetrics(world, provider, shelterCapacityPerUnit = 2) {
   const alive = world.civlings.filter((c) => c.status === 'alive').length;
+  const sheltered = Math.min(alive, world.resources.shelterCapacity);
+  const unsheltered = Math.max(0, alive - sheltered);
+  const sheltersBuilt = formatShelterUnits(
+    world.resources.shelterCapacity,
+    shelterCapacityPerUnit
+  );
   const hour = Math.floor(world.time.minuteOfDay / 60)
     .toString()
     .padStart(2, '0');
@@ -50,7 +67,10 @@ function setMetrics(world, provider) {
     `Alive: ${alive}/${world.civlings.length}`,
     `Food: ${world.resources.food}`,
     `Wood: ${world.resources.wood}`,
-    `Shelter: ${world.resources.shelterCapacity}`,
+    `Shelters built: ${sheltersBuilt}`,
+    `Sheltered civlings: ${sheltered}/${alive}`,
+    `Unsheltered civlings: ${unsheltered}`,
+    `Shelter capacity slots: ${world.resources.shelterCapacity}`,
     `Milestones: ${world.milestones.join(', ') || 'none'}`,
     `Extinction: ${world.extinction.ended ? world.extinction.cause : 'no'}`
   ];
@@ -115,9 +135,9 @@ function setActionChart(civlings, thoughtLog, runId) {
     'play',
     'learn',
     'eat',
+    'care',
     'gather_food',
     'gather_wood',
-    'build_shelter',
     'rest',
     'explore',
     'reproduce'
@@ -133,8 +153,12 @@ function setActionChart(civlings, thoughtLog, runId) {
       counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
     }
     counts.set('reproduce', civling.reproductionAttempts ?? 0);
+    const shelterAttempts = civling.shelterBuildAttempts ?? 0;
+    const shelterSuccesses = civling.shelterBuildSuccesses ?? 0;
+    const shelterFailures = civling.shelterBuildFailures ?? 0;
     const maxCount = Math.max(
       1,
+      shelterAttempts,
       ...actions.map((action) => counts.get(action) ?? 0)
     );
     const attempts = civling.reproductionAttempts ?? 0;
@@ -158,12 +182,30 @@ function setActionChart(civlings, thoughtLog, runId) {
         </div>`;
       })
       .join('');
+    const shelterWidth = Math.round((shelterAttempts / maxCount) * 100);
+    const shelterSuccessWidth =
+      shelterAttempts > 0
+        ? Math.round((shelterSuccesses / shelterAttempts) * 100)
+        : 0;
+    const shelterFailureWidth =
+      shelterAttempts > 0 ? 100 - shelterSuccessWidth : 0;
+    const shelterRow = `<div class="action-row">
+      <div class="action-label">build shelter</div>
+      <div class="action-bar-track">
+        <div class="action-bar-fill action-bar-shelter" style="width:${shelterWidth}%">
+          <div class="action-bar-shelter-success" style="width:${shelterSuccessWidth}%"></div>
+          <div class="action-bar-shelter-failure" style="width:${shelterFailureWidth}%"></div>
+        </div>
+      </div>
+      <div class="action-count">a:${shelterAttempts} s:${shelterSuccesses} f:${shelterFailures}</div>
+    </div>`;
 
     rows.push(`<div class="action-civling">
       <p class="action-civling-title">${civling.name} | ${civling.personality?.archetype ?? 'Unknown'}</p>
       <p>Way to act: ${civling.personality?.wayToAct ?? 'n/a'}</p>
       <p>Goals: ${(civling.personality?.goals ?? []).join(' • ') || 'n/a'}</p>
       <p>Baby chance: ${baseChance}% | Success so far: ${successChance}% (${babiesBorn}/${attempts})</p>
+      ${shelterRow}
       ${actionRows}
     </div>`);
   }
@@ -273,12 +315,13 @@ function renderFrame() {
 function onState(
   world,
   provider,
+  shelterCapacityPerUnit,
   runHistory,
   thoughtLog,
   llmExchangeLog,
   error
 ) {
-  setMetrics(world, provider);
+  setMetrics(world, provider, shelterCapacityPerUnit);
   setRunHistory(runHistory);
   setThoughtLog(thoughtLog);
   setLlmExchangeLog(llmExchangeLog);
@@ -312,6 +355,7 @@ async function applyDesiredCivlingCount() {
   onState(
     payload.world,
     payload.provider,
+    payload.shelterCapacityPerUnit,
     payload.runHistory,
     payload.thoughtLog,
     payload.llmExchangeLog,
@@ -358,6 +402,7 @@ function initControls() {
       onState(
         payload.world,
         payload.provider,
+        payload.shelterCapacityPerUnit,
         payload.runHistory,
         payload.thoughtLog,
         payload.llmExchangeLog,
@@ -396,8 +441,24 @@ async function bootstrap() {
   bindResize();
 
   window.tinyCivs.onTick(
-    ({ world, provider, runHistory, thoughtLog, llmExchangeLog, error }) =>
-      onState(world, provider, runHistory, thoughtLog, llmExchangeLog, error)
+    ({
+      world,
+      provider,
+      shelterCapacityPerUnit,
+      runHistory,
+      thoughtLog,
+      llmExchangeLog,
+      error
+    }) =>
+      onState(
+        world,
+        provider,
+        shelterCapacityPerUnit,
+        runHistory,
+        thoughtLog,
+        llmExchangeLog,
+        error
+      )
   );
 
   const initial = await window.tinyCivs.getState();
@@ -407,6 +468,7 @@ async function bootstrap() {
   onState(
     initial.world,
     initial.provider,
+    initial.shelterCapacityPerUnit,
     initial.runHistory,
     initial.thoughtLog,
     initial.llmExchangeLog,

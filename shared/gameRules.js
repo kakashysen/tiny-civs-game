@@ -29,6 +29,13 @@ const DEFAULT_GAME_RULES = Object.freeze({
     requiresShelterCapacityAvailable: true,
     minAdultAge: 18,
     conceptionChance: 0.35
+  },
+  healing: {
+    fireNightShelterHeal: 2,
+    agricultureNutritionHeal: 2,
+    agricultureHungerThreshold: 40,
+    careMinEnergy: 30,
+    careMaxHunger: 75
   }
 });
 
@@ -37,7 +44,11 @@ function mergeRules(overrides = {}) {
     food: { ...DEFAULT_GAME_RULES.food, ...(overrides.food ?? {}) },
     shelter: { ...DEFAULT_GAME_RULES.shelter, ...(overrides.shelter ?? {}) },
     survival: { ...DEFAULT_GAME_RULES.survival, ...(overrides.survival ?? {}) },
-    reproduction: { ...DEFAULT_GAME_RULES.reproduction, ...(overrides.reproduction ?? {}) }
+    reproduction: {
+      ...DEFAULT_GAME_RULES.reproduction,
+      ...(overrides.reproduction ?? {})
+    },
+    healing: { ...DEFAULT_GAME_RULES.healing, ...(overrides.healing ?? {}) }
   };
 }
 

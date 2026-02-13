@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ACTIONS } from '../shared/constants.js';
+import { ACTIONS, MILESTONES } from '../shared/constants.js';
 import { createInitialWorldState } from '../simulation/engine.js';
 import {
   LocalApiProvider,
@@ -169,6 +169,69 @@ describe('LocalApiProvider decideAction', () => {
 
     expect(action.action).toBe(ACTIONS.EXPLORE);
     expect(action.source).toBe('local_api_adjusted');
+  });
+
+  it('overrides care action when tools milestone is not unlocked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"care","reason":"help injured"}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).not.toBe(ACTIONS.CARE);
+    expect(action.source).toBe('local_api_adjusted');
+  });
+
+  it('allows care action when tools milestone is unlocked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"care","reason":"help injured"}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.milestones.push(MILESTONES.TOOLS);
+    world.civlings[1].health = 50;
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).toBe(ACTIONS.CARE);
   });
 
   it('overrides risky action during snowy exposure to prioritize shelter safety', async () => {
