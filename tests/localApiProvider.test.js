@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ACTIONS } from '../shared/constants.js';
 import { createInitialWorldState } from '../simulation/engine.js';
-import { LocalApiProvider, __testOnly } from '../ai/providers/localApiProvider.js';
+import {
+  LocalApiProvider,
+  __testOnly
+} from '../ai/providers/localApiProvider.js';
 
 describe('localApiProvider parsing', () => {
   it('extracts valid envelope from plain JSON', () => {
-    const parsed = __testOnly.extractEnvelope('{"action":"rest","reason":"ok"}');
+    const parsed = __testOnly.extractEnvelope(
+      '{"action":"rest","reason":"ok"}'
+    );
     expect(parsed).toEqual({ action: 'rest', reason: 'ok' });
   });
 
@@ -86,7 +91,11 @@ describe('LocalApiProvider decideAction', () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.resources.food = 10;
     world.civlings[0].hunger = 25;
-    world.civlings[0].memory = ['Gathered food.', 'Gathered food.', 'Ate stored food.'];
+    world.civlings[0].memory = [
+      'Gathered food.',
+      'Gathered food.',
+      'Ate stored food.'
+    ];
 
     const action = await provider.decideAction(world.civlings[0], world);
 
@@ -103,7 +112,8 @@ describe('LocalApiProvider decideAction', () => {
           choices: [
             {
               message: {
-                content: '{"action":"explore","reason":"To find food and resources."}'
+                content:
+                  '{"action":"explore","reason":"To find food and resources."}'
               }
             }
           ]
@@ -161,6 +171,41 @@ describe('LocalApiProvider decideAction', () => {
     expect(action.source).toBe('local_api_adjusted');
   });
 
+  it('overrides risky action during snowy exposure to prioritize shelter safety', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"explore","reason":"searching around"}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.environment.weather = 'snowy';
+    world.resources.shelterCapacity = 0;
+    world.resources.wood = 5;
+
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).toBe(ACTIONS.BUILD_SHELTER);
+    expect(action.source).toBe('local_api_adjusted');
+  });
+
   it('falls back to rest on persistent failure', async () => {
     vi.stubGlobal(
       'fetch',
@@ -206,7 +251,10 @@ describe('LocalApiProvider decideAction', () => {
         ]
       })
     };
-    const fetchMock = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second);
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = new LocalApiProvider({

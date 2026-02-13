@@ -35,11 +35,18 @@ function setStatus(message) {
 
 function setMetrics(world, provider) {
   const alive = world.civlings.filter((c) => c.status === 'alive').length;
+  const hour = Math.floor(world.time.minuteOfDay / 60)
+    .toString()
+    .padStart(2, '0');
+  const minute = (world.time.minuteOfDay % 60).toString().padStart(2, '0');
   const metrics = [
     `Provider: ${provider}`,
     `Run ID: ${world.runId}`,
     `Restart Count: ${world.restartCount}`,
     `Tick: ${world.tick}`,
+    `Date: Y${world.time.year} M${world.time.month} D${world.time.day} ${hour}:${minute}`,
+    `Phase: ${world.time.phase}`,
+    `Weather: ${world.environment.weather} | Night temp: ${world.environment.nightTemperature}`,
     `Alive: ${alive}/${world.civlings.length}`,
     `Food: ${world.resources.food}`,
     `Wood: ${world.resources.wood}`,
@@ -105,6 +112,9 @@ function setActionChart(civlings, thoughtLog, runId) {
 
   const rows = [];
   const actions = [
+    'play',
+    'learn',
+    'eat',
     'gather_food',
     'gather_wood',
     'build_shelter',
@@ -130,13 +140,17 @@ function setActionChart(civlings, thoughtLog, runId) {
     const attempts = civling.reproductionAttempts ?? 0;
     const babiesBorn = civling.babiesBorn ?? 0;
     const baseChance = Math.round((civling.babyChance ?? 0) * 100);
-    const successChance = attempts > 0 ? Math.round((babiesBorn / attempts) * 100) : 0;
+    const successChance =
+      attempts > 0 ? Math.round((babiesBorn / attempts) * 100) : 0;
 
     const actionRows = actions
       .map((action) => {
         const count = counts.get(action) ?? 0;
         const width = Math.round((count / maxCount) * 100);
-        const label = action === 'reproduce' ? 'sex acts' : action.replaceAll('_', ' ');
+        const label =
+          action === 'reproduce'
+            ? 'reproduction attempts'
+            : action.replaceAll('_', ' ');
         return `<div class="action-row">
           <div class="action-label">${label}</div>
           <div class="action-bar-track"><div class="action-bar-fill" style="width:${width}%"></div></div>
@@ -146,7 +160,9 @@ function setActionChart(civlings, thoughtLog, runId) {
       .join('');
 
     rows.push(`<div class="action-civling">
-      <p class="action-civling-title">${civling.name}</p>
+      <p class="action-civling-title">${civling.name} | ${civling.personality?.archetype ?? 'Unknown'}</p>
+      <p>Way to act: ${civling.personality?.wayToAct ?? 'n/a'}</p>
+      <p>Goals: ${(civling.personality?.goals ?? []).join(' • ') || 'n/a'}</p>
       <p>Baby chance: ${baseChance}% | Success so far: ${successChance}% (${babiesBorn}/${attempts})</p>
       ${actionRows}
     </div>`);
@@ -181,6 +197,9 @@ function setCivlingStats(civlings, thoughtLog) {
       return `<tr class="${deadClass}">
         <td>${civling.name}</td>
         <td>${civling.gender}</td>
+        <td>${civling.personality?.archetype ?? 'n/a'}</td>
+        <td>${civling.personality?.wayToAct ?? 'n/a'}</td>
+        <td>${(civling.personality?.goals ?? []).join(' | ') || 'n/a'}</td>
         <td>${civling.status}</td>
         <td>${Math.round(civling.health)}</td>
         <td>${Math.round(civling.energy)}</td>
@@ -199,6 +218,9 @@ function setCivlingStats(civlings, thoughtLog) {
       <tr>
         <th>Name</th>
         <th>Gender</th>
+        <th>Personality</th>
+        <th>Way</th>
+        <th>Goals</th>
         <th>Status</th>
         <th>HP</th>
         <th>Energy</th>

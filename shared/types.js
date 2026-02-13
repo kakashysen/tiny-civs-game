@@ -11,6 +11,22 @@
  */
 
 /**
+ * @typedef {Object} CivlingPersonality
+ * @property {string} archetype
+ * @property {string} wayToAct
+ * @property {string[]} goals
+ * @property {Object.<string, number>} actionBiases
+ */
+
+/**
+ * @typedef {Object} CivlingTask
+ * @property {string} action
+ * @property {number} totalMinutes
+ * @property {number} remainingMinutes
+ * @property {number} startedAtTick
+ */
+
+/**
  * @typedef {Object} Civling
  * @property {string} id
  * @property {string} name
@@ -27,6 +43,8 @@
  * @property {number} babiesBorn
  * @property {number} babyChance
  * @property {number|null} reproduceIntentTick
+ * @property {CivlingTask|null} currentTask
+ * @property {CivlingPersonality} personality
  * @property {number} x
  * @property {number} y
  */
@@ -46,10 +64,27 @@
  */
 
 /**
+ * @typedef {Object} TimeState
+ * @property {number} minuteOfDay
+ * @property {number} day
+ * @property {number} month
+ * @property {number} year
+ * @property {'day'|'night'} phase
+ */
+
+/**
+ * @typedef {Object} EnvironmentState
+ * @property {'warm'|'cold'|'snowy'|'rainy'} weather
+ * @property {'warm'|'cold'} nightTemperature
+ */
+
+/**
  * @typedef {Object} WorldState
  * @property {string} runId
  * @property {number} tick
  * @property {number} restartCount
+ * @property {TimeState} time
+ * @property {EnvironmentState} environment
  * @property {Resources} resources
  * @property {string[]} milestones
  * @property {Civling[]} civlings

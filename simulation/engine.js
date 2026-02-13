@@ -1,5 +1,14 @@
-import { ACTIONS, ACTION_VALUES, MILESTONES } from '../shared/constants.js';
+import {
+  ACTION_DURATION_MINUTES,
+  ACTIONS,
+  ACTION_VALUES,
+  ADULT_ALLOWED_ACTIONS,
+  MILESTONES,
+  TIME,
+  YOUNG_ALLOWED_ACTIONS
+} from '../shared/constants.js';
 import { GAME_RULES } from '../shared/gameRules.js';
+import { createRandomPersonality } from '../shared/personalities.js';
 
 const BASE_NAMES = ['Ari', 'Bex', 'Cori', 'Dax', 'Ena', 'Fio'];
 
@@ -18,11 +27,79 @@ function addMemory(civling, message) {
   }
 }
 
+/**
+ * Returns whether shelter capacity can currently cover all alive civlings.
+ * @param {import('../shared/types.js').WorldState} world
+ * @returns {boolean}
+ */
+function hasFullShelterCoverage(world) {
+  const aliveCount = getAliveCivlings(world).length;
+  return aliveCount > 0 && world.resources.shelterCapacity >= aliveCount;
+}
+
+/**
+ * Returns whether a civling is exposed to harsh weather.
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {import('../shared/types.js').WorldState} world
+ * @returns {boolean}
+ */
+function isExposedToWeather(civling, world) {
+  if (!hasFullShelterCoverage(world)) {
+    return true;
+  }
+  const action = civling.currentTask?.action;
+  return (
+    action !== ACTIONS.REST &&
+    action !== ACTIONS.BUILD_SHELTER &&
+    action !== ACTIONS.EAT
+  );
+}
+
 function markDeadIfNeeded(civling) {
   if (civling.health <= 0 || civling.hunger >= 100) {
     civling.status = 'dead';
     civling.health = 0;
   }
+}
+
+/**
+ * Checks whether a civling is below adult age.
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {boolean}
+ */
+function isYoungCivling(civling) {
+  return civling.age < GAME_RULES.reproduction.minAdultAge;
+}
+
+/**
+ * Returns age-appropriate allowed actions for a civling.
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {readonly string[]}
+ */
+export function getAllowedActionsForCivling(civling) {
+  return isYoungCivling(civling)
+    ? YOUNG_ALLOWED_ACTIONS
+    : ADULT_ALLOWED_ACTIONS;
+}
+
+/**
+ * Resolves an action while enforcing age restrictions.
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {string|undefined} requestedAction
+ * @returns {string}
+ */
+function resolveCivlingAction(civling, requestedAction) {
+  if (requestedAction === ACTIONS.EAT) {
+    return ACTIONS.EAT;
+  }
+  const allowed = getAllowedActionsForCivling(civling);
+  if (requestedAction && allowed.includes(requestedAction)) {
+    return requestedAction;
+  }
+  if (isYoungCivling(civling)) {
+    return civling.energy <= 35 ? ACTIONS.REST : ACTIONS.LEARN;
+  }
+  return ACTIONS.REST;
 }
 
 /**
@@ -35,38 +112,232 @@ function createNewbornName(world) {
 }
 
 /**
+ * Returns weighted daily weather by month.
+ * @param {number} month
+ * @returns {'warm'|'cold'|'snowy'|'rainy'}
+ */
+function rollDailyWeather(month) {
+  const winter = [12, 1, 2].includes(month);
+  const summer = [6, 7, 8].includes(month);
+  const spring = [3, 4, 5].includes(month);
+  if (winter) {
+    const pool = ['snowy', 'cold', 'cold', 'rainy', 'warm'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (summer) {
+    const pool = ['warm', 'warm', 'warm', 'rainy', 'cold'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (spring) {
+    const pool = ['rainy', 'warm', 'warm', 'cold', 'rainy'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  const pool = ['cold', 'rainy', 'warm', 'cold', 'rainy'];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/**
+ * Returns if the current minute is daytime.
+ * @param {number} minuteOfDay
+ * @returns {'day'|'night'}
+ */
+function getPhase(minuteOfDay) {
+  if (
+    minuteOfDay >= TIME.DAY_START_MINUTE &&
+    minuteOfDay < TIME.NIGHT_START_MINUTE
+  ) {
+    return 'day';
+  }
+  return 'night';
+}
+
+/**
+ * Refreshes weather and night temperature at day rollover.
+ * @param {import('../shared/types.js').WorldState} world
+ */
+function rollDailyEnvironment(world) {
+  world.environment.weather = rollDailyWeather(world.time.month);
+  world.environment.nightTemperature = Math.random() < 0.2 ? 'warm' : 'cold';
+}
+
+/**
+ * Advances game clock and updates day/night transitions.
+ * @param {import('../shared/types.js').WorldState} world
+ */
+function advanceWorldTime(world) {
+  world.time.minuteOfDay += TIME.MINUTES_PER_TICK;
+  while (world.time.minuteOfDay >= TIME.MINUTES_PER_DAY) {
+    world.time.minuteOfDay -= TIME.MINUTES_PER_DAY;
+    world.time.day += 1;
+    if (world.time.day > TIME.DAYS_PER_MONTH) {
+      world.time.day = 1;
+      world.time.month += 1;
+      if (world.time.month > TIME.MONTHS_PER_YEAR) {
+        world.time.month = 1;
+        world.time.year += 1;
+      }
+    }
+    rollDailyEnvironment(world);
+  }
+  world.time.phase = getPhase(world.time.minuteOfDay);
+}
+
+/**
+ * Resolves duration in minutes for an action.
+ * @param {string} action
+ * @returns {number}
+ */
+function getActionDurationMinutes(action) {
+  const base = ACTION_DURATION_MINUTES[action] ?? TIME.MINUTES_PER_TICK;
+  if (Array.isArray(base)) {
+    return base[Math.floor(Math.random() * base.length)];
+  }
+  return base;
+}
+
+/**
+ * Starts a timed task for a civling.
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {string} action
+ * @param {number} tick
+ */
+function startTask(civling, action, tick) {
+  const duration = getActionDurationMinutes(action);
+  civling.currentTask = {
+    action,
+    totalMinutes: duration,
+    remainingMinutes: duration,
+    startedAtTick: tick
+  };
+}
+
+/**
+ * Progresses a task by one simulation tick.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {{inProgress: boolean, completedAction: string|null}}
+ */
+function progressTask(world, civling) {
+  if (!civling.currentTask) {
+    return { inProgress: false, completedAction: null };
+  }
+
+  civling.currentTask.remainingMinutes -= TIME.MINUTES_PER_TICK;
+  if (civling.currentTask.remainingMinutes > 0) {
+    return { inProgress: true, completedAction: null };
+  }
+
+  const completedAction = civling.currentTask.action;
+  civling.currentTask = null;
+  applyAction(world, civling, completedAction);
+  return { inProgress: false, completedAction };
+}
+
+/**
+ * Starts an automatic eat task if hunger is high and food exists.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {boolean}
+ */
+function maybeStartEatTask(world, civling) {
+  if (civling.currentTask || world.resources.food <= 0) {
+    return false;
+  }
+  if (civling.hunger < GAME_RULES.food.eatHungerThreshold) {
+    return false;
+  }
+  startTask(civling, ACTIONS.EAT, world.tick);
+  return true;
+}
+
+/**
+ * Creates a full civling object with randomized personality traits.
+ * @param {Object} options
+ * @param {string} options.id
+ * @param {string} options.name
+ * @param {number} options.age
+ * @param {'male'|'female'} options.gender
+ * @param {number} options.babyChance
+ * @param {number} options.x
+ * @param {number} options.y
+ * @param {string[]} [options.memory]
+ * @returns {import('../shared/types.js').Civling}
+ */
+function createCivling({
+  id,
+  name,
+  age,
+  gender,
+  babyChance,
+  x,
+  y,
+  memory = []
+}) {
+  const personality = createRandomPersonality();
+  return {
+    id,
+    name,
+    age,
+    health: 100,
+    energy: 70,
+    hunger: age === 0 ? 25 : 30,
+    role: 'generalist',
+    gender,
+    memory: [...memory],
+    status: 'alive',
+    foodEatenLastTick: 0,
+    reproductionAttempts: 0,
+    babiesBorn: 0,
+    babyChance,
+    reproduceIntentTick: null,
+    currentTask: null,
+    personality,
+    x,
+    y
+  };
+}
+
+/**
  * @param {{runId?: string, civlingCount?: number, restartCount?: number}} options
  */
 export function createInitialWorldState(options = {}) {
   const runId = options.runId ?? randomId('run');
   const civlingCount = options.civlingCount ?? 4;
   const restartCount = options.restartCount ?? 0;
-  const defaultBabyChance = clamp(GAME_RULES.reproduction.conceptionChance ?? 0.35, 0, 1);
+  const defaultBabyChance = clamp(
+    GAME_RULES.reproduction.conceptionChance ?? 0.35,
+    0,
+    1
+  );
 
-  const civlings = Array.from({ length: civlingCount }, (_, idx) => ({
-    id: randomId('civ'),
-    name: BASE_NAMES[idx % BASE_NAMES.length],
-    age: 18 + idx,
-    health: 100,
-    energy: 70,
-    hunger: 30,
-    role: 'generalist',
-    gender: idx % 2 === 0 ? 'male' : 'female',
-    memory: [],
-    status: 'alive',
-    foodEatenLastTick: 0,
-    reproductionAttempts: 0,
-    babiesBorn: 0,
-    babyChance: defaultBabyChance,
-    reproduceIntentTick: null,
-    x: idx * 2,
-    y: 0
-  }));
+  const civlings = Array.from({ length: civlingCount }, (_, idx) =>
+    createCivling({
+      id: randomId('civ'),
+      name: BASE_NAMES[idx % BASE_NAMES.length],
+      age: 18 + idx,
+      gender: idx % 2 === 0 ? 'male' : 'female',
+      babyChance: defaultBabyChance,
+      x: idx * 2,
+      y: 0
+    })
+  );
 
-  return {
+  /** @type {import('../shared/types.js').WorldState} */
+  const world = {
     runId,
     tick: 0,
     restartCount,
+    time: {
+      minuteOfDay: TIME.DAY_START_MINUTE,
+      day: 1,
+      month: 1,
+      year: 1,
+      phase: 'day'
+    },
+    environment: {
+      weather: 'cold',
+      nightTemperature: 'cold'
+    },
     resources: {
       food: 12,
       wood: 6,
@@ -80,6 +351,7 @@ export function createInitialWorldState(options = {}) {
       tick: null
     }
   };
+  return world;
 }
 
 /**
@@ -100,13 +372,22 @@ export function getAliveCivlings(world) {
  * @param {import('../shared/types.js').WorldState} world
  */
 export function evaluateMilestones(world) {
-  if (world.resources.shelterCapacity > 0 && !world.milestones.includes(MILESTONES.SHELTER)) {
+  if (
+    world.resources.shelterCapacity > 0 &&
+    !world.milestones.includes(MILESTONES.SHELTER)
+  ) {
     world.milestones.push(MILESTONES.SHELTER);
   }
-  if (world.resources.wood >= 18 && !world.milestones.includes(MILESTONES.TOOLS)) {
+  if (
+    world.resources.wood >= 18 &&
+    !world.milestones.includes(MILESTONES.TOOLS)
+  ) {
     world.milestones.push(MILESTONES.TOOLS);
   }
-  if (world.resources.food >= 30 && !world.milestones.includes(MILESTONES.AGRICULTURE)) {
+  if (
+    world.resources.food >= 30 &&
+    !world.milestones.includes(MILESTONES.AGRICULTURE)
+  ) {
     world.milestones.push(MILESTONES.AGRICULTURE);
   }
   if (
@@ -118,44 +399,74 @@ export function evaluateMilestones(world) {
   }
 }
 
-function updateVitals(civling, { hungerDelta = 0, energyDelta = 0, healthDelta = 0 }) {
+function updateVitals(
+  civling,
+  { hungerDelta = 0, energyDelta = 0, healthDelta = 0 }
+) {
   civling.hunger = clamp(civling.hunger + hungerDelta, 0, 100);
   civling.energy = clamp(civling.energy + energyDelta, 0, 100);
   civling.health = clamp(civling.health + healthDelta, 0, 100);
 }
 
 /**
- * Civlings can consume from shared food stock to reduce hunger.
- * @param {import('../shared/types.js').WorldState} world
- * @param {import('../shared/types.js').Civling} civling
- * @param {number} hungerThreshold
- * @param {number} hungerRelief
- */
-function consumeFood(
-  world,
-  civling,
-  hungerThreshold = GAME_RULES.food.eatHungerThreshold,
-  hungerRelief = GAME_RULES.food.eatHungerRelief
-) {
-  if (world.resources.food <= 0 || civling.hunger < hungerThreshold) {
-    return false;
-  }
-
-  world.resources.food -= 1;
-  civling.hunger = clamp(civling.hunger - hungerRelief, 0, 100);
-  civling.energy = clamp(civling.energy + GAME_RULES.food.eatEnergyGain, 0, 100);
-  civling.foodEatenLastTick = (civling.foodEatenLastTick ?? 0) + 1;
-  addMemory(civling, 'Ate stored food.');
-  return true;
-}
-
-/**
+ * Applies action effects after the timed task completes.
  * @param {import('../shared/types.js').WorldState} world
  * @param {import('../shared/types.js').Civling} civling
  * @param {string} action
  */
 export function applyAction(world, civling, action) {
   const values = ACTION_VALUES[action] ?? ACTION_VALUES[ACTIONS.REST];
+  const aliveAdults = getAliveCivlings(world).filter(
+    (item) => item.age >= GAME_RULES.reproduction.minAdultAge
+  ).length;
+
+  if (action === ACTIONS.PLAY) {
+    updateVitals(civling, {
+      hungerDelta: values.hungerDelta,
+      energyDelta: values.energyGain,
+      healthDelta: values.healthDelta + (aliveAdults > 0 ? 1 : -2)
+    });
+    addMemory(
+      civling,
+      aliveAdults > 0
+        ? 'Played under adult supervision.'
+        : 'Played alone and felt unsafe.'
+    );
+  }
+
+  if (action === ACTIONS.LEARN) {
+    if (Math.random() < values.chanceFood) {
+      world.resources.food += 1;
+    }
+    if (Math.random() < values.chanceWood) {
+      world.resources.wood += 1;
+    }
+    updateVitals(civling, {
+      hungerDelta: values.hungerDelta,
+      energyDelta: -values.energyCost,
+      healthDelta: aliveAdults > 0 ? 1 : -1
+    });
+    addMemory(
+      civling,
+      aliveAdults > 0
+        ? 'Learned from adults and nearby nature.'
+        : 'Learned from the environment without adult help.'
+    );
+  }
+
+  if (action === ACTIONS.EAT) {
+    if (world.resources.food > 0) {
+      world.resources.food -= 1;
+      updateVitals(civling, {
+        hungerDelta: values.hungerDelta,
+        energyDelta: values.energyGain
+      });
+      civling.foodEatenLastTick = (civling.foodEatenLastTick ?? 0) + 1;
+      addMemory(civling, 'Finished eating shared food.');
+    } else {
+      addMemory(civling, 'Tried to eat but no food was available.');
+    }
+  }
 
   if (action === ACTIONS.GATHER_FOOD) {
     world.resources.food += values.food;
@@ -193,8 +504,11 @@ export function applyAction(world, civling, action) {
 
   if (action === ACTIONS.REST) {
     const aliveCount = getAliveCivlings(world).length;
-    const hasShelterCoverage = world.resources.shelterCapacity >= aliveCount && aliveCount > 0;
-    const shelterBonus = hasShelterCoverage ? GAME_RULES.shelter.restEnergyBonusWhenSheltered : 0;
+    const hasShelterCoverage =
+      world.resources.shelterCapacity >= aliveCount && aliveCount > 0;
+    const shelterBonus = hasShelterCoverage
+      ? GAME_RULES.shelter.restEnergyBonusWhenSheltered
+      : 0;
     updateVitals(civling, {
       hungerDelta: values.hungerDelta,
       energyDelta: values.energyGain + shelterBonus
@@ -231,16 +545,54 @@ export function applyAction(world, civling, action) {
 }
 
 /**
+ * Applies global effects at end of tick.
  * @param {import('../shared/types.js').WorldState} world
  */
 function postTickWorldEffects(world) {
   const alive = getAliveCivlings(world);
+  const aliveAdults = alive.filter(
+    (civling) => civling.age >= GAME_RULES.reproduction.minAdultAge
+  );
 
   for (const civling of alive) {
+    const wasYoung = isYoungCivling(civling);
+    const exposed = isExposedToWeather(civling, world);
     civling.age += 1 / 12;
     civling.hunger = clamp(civling.hunger + 3, 0, 100);
 
-    consumeFood(world, civling);
+    if (world.environment.weather === 'snowy') {
+      civling.hunger = clamp(civling.hunger + 1, 0, 100);
+      if (exposed) {
+        civling.health = clamp(civling.health - 30, 0, 100);
+        civling.energy = clamp(civling.energy - 12, 0, 100);
+        addMemory(civling, 'Suffered severe snow exposure without shelter.');
+        if (civling.energy <= 25 || civling.hunger >= 80) {
+          civling.health = clamp(civling.health - 20, 0, 100);
+        }
+      }
+    }
+    if (
+      world.time.phase === 'night' &&
+      world.environment.nightTemperature === 'cold'
+    ) {
+      civling.energy = clamp(civling.energy - (exposed ? 8 : 2), 0, 100);
+      if (exposed) {
+        civling.health = clamp(civling.health - 10, 0, 100);
+        addMemory(civling, 'Took cold-night damage while exposed outside.');
+      }
+    }
+
+    if (wasYoung && aliveAdults.length === 0) {
+      civling.health = clamp(civling.health - 5, 0, 100);
+      addMemory(civling, 'Needed adult help, but no grown-ups were available.');
+    }
+
+    if (wasYoung && !isYoungCivling(civling)) {
+      addMemory(
+        civling,
+        'Reached adulthood and started helping the community.'
+      );
+    }
 
     if (civling.hunger >= 85) {
       civling.health = clamp(civling.health - 8, 0, 100);
@@ -268,7 +620,8 @@ function applyReproduction(world) {
 
   const adults = getAliveCivlings(world).filter(
     (civling) =>
-      civling.age >= rules.minAdultAge && civling.reproduceIntentTick === world.tick
+      civling.age >= rules.minAdultAge &&
+      civling.reproduceIntentTick === world.tick
   );
   if (adults.length < 2) {
     return;
@@ -287,7 +640,10 @@ function applyReproduction(world) {
   }
 
   const aliveCount = getAliveCivlings(world).length;
-  if (rules.requiresShelterCapacityAvailable && world.resources.shelterCapacity <= aliveCount) {
+  if (
+    rules.requiresShelterCapacityAvailable &&
+    world.resources.shelterCapacity <= aliveCount
+  ) {
     return;
   }
 
@@ -310,25 +666,20 @@ function applyReproduction(world) {
   }
 
   const newbornGender = Math.random() < 0.5 ? 'male' : 'female';
-  const newborn = {
+  const newborn = createCivling({
     id: randomId('civ'),
     name: createNewbornName(world),
     age: 0,
-    health: 100,
-    energy: 70,
-    hunger: 25,
-    role: 'generalist',
     gender: newbornGender,
-    memory: ['Born this tick.'],
-    status: 'alive',
-    foodEatenLastTick: 0,
-    reproductionAttempts: 0,
-    babiesBorn: 0,
     babyChance: conceptionChance,
-    reproduceIntentTick: null,
     x: mother?.x ?? 0,
-    y: mother?.y ?? 0
-  };
+    y: mother?.y ?? 0,
+    memory: ['Born this tick.']
+  });
+  addMemory(
+    newborn,
+    `Personality: ${newborn.personality.archetype} (${newborn.personality.wayToAct}).`
+  );
 
   world.civlings.push(newborn);
 
@@ -353,13 +704,57 @@ export async function runTick(world, decideAction, options = {}) {
   }
 
   world.tick += 1;
+  advanceWorldTime(world);
 
   for (const civling of getAliveCivlings(world)) {
     civling.foodEatenLastTick = 0;
     civling.reproduceIntentTick = null;
+
+    const taskProgress = progressTask(world, civling);
+    if (taskProgress.inProgress) {
+      options.onDecision?.({
+        tick: world.tick,
+        civlingId: civling.id,
+        civlingName: civling.name,
+        action: civling.currentTask?.action ?? ACTIONS.REST,
+        reason: 'task_in_progress',
+        fallback: false,
+        source: 'task',
+        llmTrace: null
+      });
+      continue;
+    }
+
+    if (taskProgress.completedAction) {
+      options.onDecision?.({
+        tick: world.tick,
+        civlingId: civling.id,
+        civlingName: civling.name,
+        action: taskProgress.completedAction,
+        reason: 'task_completed',
+        fallback: false,
+        source: 'task',
+        llmTrace: null
+      });
+      continue;
+    }
+
+    if (maybeStartEatTask(world, civling)) {
+      options.onDecision?.({
+        tick: world.tick,
+        civlingId: civling.id,
+        civlingName: civling.name,
+        action: ACTIONS.EAT,
+        reason: 'auto_eat_needed',
+        fallback: false,
+        source: 'system',
+        llmTrace: null
+      });
+      continue;
+    }
+
     let envelope;
     let fallback = false;
-
     try {
       envelope = await decideAction(civling, world);
     } catch {
@@ -371,11 +766,15 @@ export async function runTick(world, decideAction, options = {}) {
       fallback = true;
     }
 
-    const action = isValidAction(envelope?.action) ? envelope.action : ACTIONS.REST;
+    const requestedAction = isValidAction(envelope?.action)
+      ? envelope.action
+      : undefined;
+    const action = resolveCivlingAction(civling, requestedAction);
     if (action !== envelope?.action) {
       fallback = true;
     }
 
+    startTask(civling, action, world.tick);
     options.onDecision?.({
       tick: world.tick,
       civlingId: civling.id,
@@ -386,8 +785,6 @@ export async function runTick(world, decideAction, options = {}) {
       source: envelope?.source ?? 'provider',
       llmTrace: envelope?.llmTrace ?? null
     });
-
-    applyAction(world, civling, action);
   }
 
   postTickWorldEffects(world);

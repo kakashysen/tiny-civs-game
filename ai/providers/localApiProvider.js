@@ -1,4 +1,8 @@
-import { ACTIONS } from '../../shared/constants.js';
+import {
+  ACTIONS,
+  ADULT_ALLOWED_ACTIONS,
+  YOUNG_ALLOWED_ACTIONS
+} from '../../shared/constants.js';
 import { GAME_RULES } from '../../shared/gameRules.js';
 import { decideDeterministicAction } from './deterministicProvider.js';
 import { buildDecisionPrompt } from '../prompts/buildDecisionPrompt.js';
@@ -155,11 +159,12 @@ function applyShelterNeedPolicy(world, envelope) {
   const aliveCount = world.civlings.filter(
     (item) => item.status === 'alive'
   ).length;
-  const shelterTarget = aliveCount + (
-    GAME_RULES.reproduction.enabled && GAME_RULES.reproduction.requiresShelterCapacityAvailable
+  const shelterTarget =
+    aliveCount +
+    (GAME_RULES.reproduction.enabled &&
+    GAME_RULES.reproduction.requiresShelterCapacityAvailable
       ? 1
-      : 0
-  );
+      : 0);
   const shelterNeeded = Math.max(
     0,
     shelterTarget - world.resources.shelterCapacity
@@ -181,20 +186,26 @@ function applyShelterNeedPolicy(world, envelope) {
  * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
  */
 function applyReproductionPolicy(civling, world, envelope) {
-  if (envelope.action !== ACTIONS.REPRODUCE || !GAME_RULES.reproduction.enabled) {
+  if (
+    envelope.action !== ACTIONS.REPRODUCE ||
+    !GAME_RULES.reproduction.enabled
+  ) {
     return envelope;
   }
 
-  const aliveCivlings = world.civlings.filter((item) => item.status === 'alive');
+  const aliveCivlings = world.civlings.filter(
+    (item) => item.status === 'alive'
+  );
   const reserveTarget = Math.max(
     GAME_RULES.food.reserveMinimum,
     aliveCivlings.length * GAME_RULES.food.reservePerAliveCivling
   );
-  const shelterTarget = aliveCivlings.length + (
-    GAME_RULES.reproduction.enabled && GAME_RULES.reproduction.requiresShelterCapacityAvailable
+  const shelterTarget =
+    aliveCivlings.length +
+    (GAME_RULES.reproduction.enabled &&
+    GAME_RULES.reproduction.requiresShelterCapacityAvailable
       ? 1
-      : 0
-  );
+      : 0);
   const shelterReady =
     !GAME_RULES.reproduction.requiresShelterCapacityAvailable ||
     world.resources.shelterCapacity >= shelterTarget;
@@ -202,13 +213,16 @@ function applyReproductionPolicy(civling, world, envelope) {
     (item) =>
       item.id !== civling.id &&
       item.age >= GAME_RULES.reproduction.minAdultAge &&
-      (GAME_RULES.reproduction.requiresMaleAndFemale ? item.gender !== civling.gender : true)
+      (GAME_RULES.reproduction.requiresMaleAndFemale
+        ? item.gender !== civling.gender
+        : true)
   );
   const ready =
     civling.age >= GAME_RULES.reproduction.minAdultAge &&
     civling.energy >= 45 &&
     civling.hunger <= 70 &&
-    world.resources.food >= Math.max(GAME_RULES.food.reserveMinimum, reserveTarget - 2) &&
+    world.resources.food >=
+      Math.max(GAME_RULES.food.reserveMinimum, reserveTarget - 2) &&
     shelterReady &&
     partnerExists;
 
@@ -220,6 +234,58 @@ function applyReproductionPolicy(civling, world, envelope) {
   return {
     action: alternative.action,
     reason: `reproduction_not_ready_override:${envelope.reason}`,
+    source: 'local_api_adjusted'
+  };
+}
+
+/**
+ * Forces weather-safe behavior when exposure risk is high.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applyWeatherRiskPolicy(civling, world, envelope) {
+  const aliveCount = world.civlings.filter(
+    (item) => item.status === 'alive'
+  ).length;
+  const shelterCovered =
+    world.resources.shelterCapacity >= aliveCount && aliveCount > 0;
+  const risk =
+    (world.environment.weather === 'snowy' ||
+      (world.time.phase === 'night' &&
+        world.environment.nightTemperature === 'cold')) &&
+    !shelterCovered;
+  if (!risk) {
+    return envelope;
+  }
+
+  const alternative = decideDeterministicAction(civling, world);
+  if (alternative.action === envelope.action) {
+    return envelope;
+  }
+  return {
+    action: alternative.action,
+    reason: `weather_risk_override:${envelope.reason}`,
+    source: 'local_api_adjusted'
+  };
+}
+
+/**
+ * Enforces age-based action restrictions.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applyAgePolicy(civling, world, envelope) {
+  const isYoung = civling.age < GAME_RULES.reproduction.minAdultAge;
+  const allowed = isYoung ? YOUNG_ALLOWED_ACTIONS : ADULT_ALLOWED_ACTIONS;
+  if (allowed.includes(envelope.action)) {
+    return envelope;
+  }
+  const alternative = decideDeterministicAction(civling, world);
+  return {
+    action: alternative.action,
+    reason: `age_restriction_override:${envelope.reason}`,
     source: 'local_api_adjusted'
   };
 }
@@ -330,8 +396,10 @@ export class LocalApiProvider {
         if (envelope && Object.values(ACTIONS).includes(envelope.action)) {
           let adjusted = applyAntiLoopPolicy(civling, world, envelope);
           adjusted = applySurvivalPolicy(civling, world, adjusted);
+          adjusted = applyWeatherRiskPolicy(civling, world, adjusted);
           adjusted = applyShelterNeedPolicy(world, adjusted);
           adjusted = applyReproductionPolicy(civling, world, adjusted);
+          adjusted = applyAgePolicy(civling, world, adjusted);
           return {
             ...adjusted,
             source: adjusted.source ?? 'local_api',

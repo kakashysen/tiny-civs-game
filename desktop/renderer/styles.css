@@ -179,6 +179,11 @@ button:hover {
   gap: 12px;
 }
 
+#actionChart {
+  max-height: 280px;
+  overflow: auto;
+}
+
 .action-civling {
   border: 1px solid #2b3944;
   border-radius: 8px;
