@@ -18,8 +18,18 @@
         </div>
         <div class="field">
           <label for="civlingCountInput">Civlings to Start</label>
-          <input id="civlingCountInput" type="number" min="1" max="6" step="1" />
+          <input
+            id="civlingCountInput"
+            type="number"
+            min="1"
+            max="6"
+            step="1"
+          />
         </div>
+        <label class="checkbox-field" for="showGridCheckbox">
+          <input id="showGridCheckbox" type="checkbox" />
+          Show World Grid
+        </label>
         <div id="status">Status: idle</div>
       </section>
 
@@ -30,7 +40,19 @@
 
       <section class="panel world">
         <h2>World</h2>
-        <div id="worldCanvas"></div>
+        <div id="worldCanvasWrapper">
+          <div
+            id="gridTopLabels"
+            class="grid-label-row"
+            aria-hidden="true"
+          ></div>
+          <div
+            id="gridLeftLabels"
+            class="grid-label-col"
+            aria-hidden="true"
+          ></div>
+          <div id="worldCanvas"></div>
+        </div>
       </section>
 
       <section class="panel history">

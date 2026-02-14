@@ -16,7 +16,23 @@ const DEFAULT_GAME_RULES = Object.freeze({
   shelter: {
     woodCostPerUnit: 4,
     capacityPerUnit: 2,
-    restEnergyBonusWhenSheltered: 8
+    restEnergyBonusWhenSheltered: 8,
+    woodCapacityPerUnit: 4
+  },
+  storage: {
+    woodCostPerUnit: 8,
+    woodCapacityPerUnit: 24
+  },
+  forests: {
+    initialCount: 5,
+    woodPerForest: 12,
+    regrowthTicksMin: 8,
+    regrowthTicksMax: 16,
+    harvestMinutes: 30
+  },
+  world: {
+    width: 36,
+    height: 24
   },
   survival: {
     starvationHungerRiskThreshold: 70,
@@ -43,6 +59,9 @@ function mergeRules(overrides = {}) {
   return {
     food: { ...DEFAULT_GAME_RULES.food, ...(overrides.food ?? {}) },
     shelter: { ...DEFAULT_GAME_RULES.shelter, ...(overrides.shelter ?? {}) },
+    storage: { ...DEFAULT_GAME_RULES.storage, ...(overrides.storage ?? {}) },
+    forests: { ...DEFAULT_GAME_RULES.forests, ...(overrides.forests ?? {}) },
+    world: { ...DEFAULT_GAME_RULES.world, ...(overrides.world ?? {}) },
     survival: { ...DEFAULT_GAME_RULES.survival, ...(overrides.survival ?? {}) },
     reproduction: {
       ...DEFAULT_GAME_RULES.reproduction,

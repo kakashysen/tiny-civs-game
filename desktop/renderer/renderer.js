@@ -8,14 +8,21 @@ const llmExchangeLogEl = document.getElementById('llmExchangeLog');
 const actionChartEl = document.getElementById('actionChart');
 const civlingStatsEl = document.getElementById('civlingStats');
 const worldCanvasEl = document.getElementById('worldCanvas');
+const worldCanvasWrapperEl = document.getElementById('worldCanvasWrapper');
 const startBtn = document.getElementById('startBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const resumeBtn = document.getElementById('resumeBtn');
 const resetBtn = document.getElementById('resetBtn');
 const civlingCountInput = document.getElementById('civlingCountInput');
+const showGridCheckboxEl = document.getElementById('showGridCheckbox');
+const gridTopLabelsEl = document.getElementById('gridTopLabels');
+const gridLeftLabelsEl = document.getElementById('gridLeftLabels');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(worldCanvasEl.clientWidth, worldCanvasEl.clientHeight);
+renderer.domElement.style.display = 'block';
+renderer.domElement.style.width = '100%';
+renderer.domElement.style.height = '100%';
 worldCanvasEl.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -28,6 +35,184 @@ const light = new THREE.AmbientLight(0xffffff, 1.2);
 scene.add(light);
 
 const civlingMeshes = new Map();
+const forestMeshes = new Map();
+const shelterMeshes = new Map();
+const storageMeshes = new Map();
+let worldGridLines = null;
+let worldGridSignature = '';
+let showGrid = false;
+let latestWorld = null;
+let resizeRafId = null;
+
+const CIVLING_COLORS = Object.freeze({
+  male: 0x3b82f6,
+  female: 0xec4899,
+  dead: 0x6b7280
+});
+
+const SHELTER_COLOR = 0x8b5a2b;
+const ENTITY_SCALE = Object.freeze({
+  civlingRadius: 0.34,
+  shelterSize: 0.78,
+  treeRadius: 1.02,
+  storageSize: 0.9
+});
+
+function getWorldBounds(world) {
+  const halfWidth = Math.floor((world.map?.width ?? 36) / 2);
+  const halfHeight = Math.floor((world.map?.height ?? 24) / 2);
+  return {
+    minX: -halfWidth,
+    maxX: halfWidth - 1,
+    minY: -halfHeight,
+    maxY: halfHeight - 1
+  };
+}
+
+function worldToCanvasX(worldX, canvasWidth) {
+  return ((worldX - camera.left) / (camera.right - camera.left)) * canvasWidth;
+}
+
+function worldToCanvasY(worldY, canvasHeight) {
+  return ((camera.top - worldY) / (camera.top - camera.bottom)) * canvasHeight;
+}
+
+function updateCameraProjection(world, viewportWidth, viewportHeight) {
+  const bounds = getWorldBounds(world);
+  const worldWidth = bounds.maxX - bounds.minX + 1;
+  const worldHeight = bounds.maxY - bounds.minY + 1;
+  const padding = 2;
+  const targetWidth = worldWidth + padding;
+  const targetHeight = worldHeight + padding;
+  const aspect = viewportWidth / viewportHeight;
+  const targetAspect = targetWidth / targetHeight;
+
+  let viewWidth = targetWidth;
+  let viewHeight = targetHeight;
+  if (aspect > targetAspect) {
+    viewWidth = targetHeight * aspect;
+  } else {
+    viewHeight = targetWidth / aspect;
+  }
+
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  camera.left = centerX - viewWidth / 2;
+  camera.right = centerX + viewWidth / 2;
+  camera.top = centerY + viewHeight / 2;
+  camera.bottom = centerY - viewHeight / 2;
+  camera.updateProjectionMatrix();
+}
+
+function clearGridLabels() {
+  gridTopLabelsEl.innerHTML = '';
+  gridLeftLabelsEl.innerHTML = '';
+}
+
+function buildGridLabels(world) {
+  if (!showGrid) {
+    clearGridLabels();
+    return;
+  }
+
+  const bounds = getWorldBounds(world);
+  const canvasWidth = worldCanvasEl.clientWidth;
+  const canvasHeight = worldCanvasEl.clientHeight;
+
+  const topParts = [];
+  for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+    const left = worldToCanvasX(x, canvasWidth);
+    topParts.push(
+      `<span class="grid-label" style="left:${left.toFixed(1)}px">${x}</span>`
+    );
+  }
+  gridTopLabelsEl.innerHTML = topParts.join('');
+
+  const leftParts = [];
+  for (let y = bounds.maxY; y >= bounds.minY; y -= 1) {
+    const top = worldToCanvasY(y, canvasHeight);
+    leftParts.push(
+      `<span class="grid-label" style="top:${top.toFixed(1)}px">${y}</span>`
+    );
+  }
+  gridLeftLabelsEl.innerHTML = leftParts.join('');
+}
+
+function clearGridLines() {
+  if (worldGridLines) {
+    scene.remove(worldGridLines);
+    worldGridLines.geometry.dispose();
+    worldGridLines.material.dispose();
+    worldGridLines = null;
+  }
+  worldGridSignature = '';
+}
+
+function ensureGridLines(world) {
+  const signature = `${world.map.width}x${world.map.height}`;
+  if (worldGridLines && worldGridSignature === signature) {
+    worldGridLines.visible = showGrid;
+    return;
+  }
+
+  clearGridLines();
+  const bounds = getWorldBounds(world);
+  const points = [];
+
+  for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+    points.push(new THREE.Vector3(x, bounds.minY, -0.12));
+    points.push(new THREE.Vector3(x, bounds.maxY, -0.12));
+  }
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
+    points.push(new THREE.Vector3(bounds.minX, y, -0.12));
+    points.push(new THREE.Vector3(bounds.maxX, y, -0.12));
+  }
+
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = new THREE.LineBasicMaterial({
+    color: 0x3b5161,
+    transparent: true,
+    opacity: 0.45
+  });
+
+  worldGridLines = new THREE.LineSegments(geometry, material);
+  worldGridLines.visible = showGrid;
+  scene.add(worldGridLines);
+  worldGridSignature = signature;
+}
+
+function updateGridVisibility(world) {
+  ensureGridLines(world);
+  buildGridLabels(world);
+  gridTopLabelsEl.style.display = showGrid ? 'block' : 'none';
+  gridLeftLabelsEl.style.display = showGrid ? 'block' : 'none';
+}
+
+function resizeWorldCanvas() {
+  const width = Math.max(1, Math.round(worldCanvasEl.clientWidth));
+  const height = Math.max(1, Math.round(worldCanvasEl.clientHeight));
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.setSize(width, height, false);
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
+  if (latestWorld) {
+    updateCameraProjection(latestWorld, width, height);
+    buildGridLabels(latestWorld);
+  }
+}
+
+function scheduleWorldResize() {
+  if (resizeRafId !== null) {
+    cancelAnimationFrame(resizeRafId);
+  }
+  resizeRafId = requestAnimationFrame(() => {
+    resizeWorldCanvas();
+    resizeRafId = requestAnimationFrame(() => {
+      resizeWorldCanvas();
+      resizeRafId = null;
+    });
+  });
+}
 
 function setStatus(message) {
   statusEl.textContent = `Status: ${message}`;
@@ -67,6 +252,10 @@ function setMetrics(world, provider, shelterCapacityPerUnit = 2) {
     `Alive: ${alive}/${world.civlings.length}`,
     `Food: ${world.resources.food}`,
     `Wood: ${world.resources.wood}`,
+    `Forests: ${world.forests?.length ?? 0}`,
+    `Storages: ${world.storages?.length ?? 0}`,
+    `Shelter wood slots: ${(world.shelters ?? []).reduce((sum, item) => sum + item.woodStored, 0)}/${(world.shelters ?? []).reduce((sum, item) => sum + item.woodCapacity, 0)}`,
+    `Storage wood slots: ${(world.storages ?? []).reduce((sum, item) => sum + item.woodStored, 0)}/${(world.storages ?? []).reduce((sum, item) => sum + item.woodCapacity, 0)}`,
     `Shelters built: ${sheltersBuilt}`,
     `Sheltered civlings: ${sheltered}/${alive}`,
     `Unsheltered civlings: ${unsheltered}`,
@@ -138,6 +327,7 @@ function setActionChart(civlings, thoughtLog, runId) {
     'care',
     'gather_food',
     'gather_wood',
+    'build_storage',
     'rest',
     'explore',
     'reproduce'
@@ -293,17 +483,106 @@ function upsertCivlings(world) {
   for (const civling of world.civlings) {
     let mesh = civlingMeshes.get(civling.id);
     if (!mesh) {
-      const geometry = new THREE.CircleGeometry(0.6, 24);
-      const material = new THREE.MeshBasicMaterial({ color: 0x8cc84b });
+      const geometry = new THREE.CircleGeometry(ENTITY_SCALE.civlingRadius, 24);
+      const material = new THREE.MeshBasicMaterial({
+        color:
+          civling.gender === 'male'
+            ? CIVLING_COLORS.male
+            : CIVLING_COLORS.female
+      });
       mesh = new THREE.Mesh(geometry, material);
       civlingMeshes.set(civling.id, mesh);
       scene.add(mesh);
     }
 
     mesh.position.set(civling.x, civling.y, 0);
-    mesh.material.color.setHex(
-      civling.status === 'alive' ? 0x8cc84b : 0x6b7680
-    );
+    if (civling.status === 'alive') {
+      mesh.material.color.setHex(
+        civling.gender === 'male' ? CIVLING_COLORS.male : CIVLING_COLORS.female
+      );
+    } else {
+      mesh.material.color.setHex(CIVLING_COLORS.dead);
+    }
+  }
+}
+
+function upsertStaticEntities(world) {
+  const forests = world.forests ?? [];
+  const shelters = world.shelters ?? [];
+  const storages = world.storages ?? [];
+
+  const activeForestIds = new Set(forests.map((item) => item.id));
+  for (const [id, mesh] of forestMeshes.entries()) {
+    if (!activeForestIds.has(id)) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      forestMeshes.delete(id);
+    }
+  }
+  for (const forest of forests) {
+    let mesh = forestMeshes.get(forest.id);
+    if (!mesh) {
+      mesh = new THREE.Mesh(
+        new THREE.CircleGeometry(ENTITY_SCALE.treeRadius, 20),
+        new THREE.MeshBasicMaterial({ color: 0x2f9e44 })
+      );
+      forestMeshes.set(forest.id, mesh);
+      scene.add(mesh);
+    }
+    mesh.position.set(forest.x, forest.y, -0.02);
+  }
+
+  const activeShelterIds = new Set(shelters.map((item) => item.id));
+  for (const [id, mesh] of shelterMeshes.entries()) {
+    if (!activeShelterIds.has(id)) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      shelterMeshes.delete(id);
+    }
+  }
+  for (const shelter of shelters) {
+    let mesh = shelterMeshes.get(shelter.id);
+    if (!mesh) {
+      mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(
+          ENTITY_SCALE.shelterSize,
+          ENTITY_SCALE.shelterSize,
+          0.1
+        ),
+        new THREE.MeshBasicMaterial({ color: SHELTER_COLOR })
+      );
+      shelterMeshes.set(shelter.id, mesh);
+      scene.add(mesh);
+    }
+    mesh.position.set(shelter.x, shelter.y, -0.03);
+  }
+
+  const activeStorageIds = new Set(storages.map((item) => item.id));
+  for (const [id, mesh] of storageMeshes.entries()) {
+    if (!activeStorageIds.has(id)) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      storageMeshes.delete(id);
+    }
+  }
+  for (const storage of storages) {
+    let mesh = storageMeshes.get(storage.id);
+    if (!mesh) {
+      mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(
+          ENTITY_SCALE.storageSize,
+          ENTITY_SCALE.storageSize,
+          0.1
+        ),
+        new THREE.MeshBasicMaterial({ color: 0x4c6ef5 })
+      );
+      storageMeshes.set(storage.id, mesh);
+      scene.add(mesh);
+    }
+    mesh.position.set(storage.x, storage.y, -0.04);
   }
 }
 
@@ -321,6 +600,7 @@ function onState(
   llmExchangeLog,
   error
 ) {
+  latestWorld = world;
   setMetrics(world, provider, shelterCapacityPerUnit);
   setRunHistory(runHistory);
   setThoughtLog(thoughtLog);
@@ -328,6 +608,8 @@ function onState(
   setActionChart(world.civlings, thoughtLog, world.runId);
   setCivlingStats(world.civlings, thoughtLog);
   upsertCivlings(world);
+  upsertStaticEntities(world);
+  updateGridVisibility(world);
 
   if (error) {
     setStatus(`error (${error})`);
@@ -423,11 +705,26 @@ function initControls() {
       console.error(error);
     }
   });
+
+  showGridCheckboxEl.addEventListener('change', () => {
+    showGrid = showGridCheckboxEl.checked;
+    if (latestWorld) {
+      updateGridVisibility(latestWorld);
+    }
+  });
 }
 
 function bindResize() {
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(() => {
+      scheduleWorldResize();
+    });
+    observer.observe(worldCanvasWrapperEl);
+    observer.observe(worldCanvasEl);
+  }
+
   window.addEventListener('resize', () => {
-    renderer.setSize(worldCanvasEl.clientWidth, worldCanvasEl.clientHeight);
+    scheduleWorldResize();
   });
 }
 
@@ -474,6 +771,7 @@ async function bootstrap() {
     initial.llmExchangeLog,
     initial.error
   );
+  scheduleWorldResize();
   renderFrame();
 }
 

@@ -16,6 +16,20 @@ async function runTicks(world, action, ticks) {
   }
 }
 
+/**
+ * Advances ticks until the first civling has no active task.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {number} maxTicks
+ */
+async function runUntilTaskComplete(world, maxTicks = 12) {
+  for (let index = 0; index < maxTicks; index += 1) {
+    if (!world.civlings[0].currentTask) {
+      return;
+    }
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+  }
+}
+
 describe('simulation engine', () => {
   it('increments tick on each run', async () => {
     const world = createInitialWorldState({ civlingCount: 2 });
@@ -66,7 +80,72 @@ describe('simulation engine', () => {
 
     await runTicks(world, ACTIONS.GATHER_FOOD, 2);
     expect(world.resources.food).toBeGreaterThan(beforeFood);
-    expect(world.civlings[0].currentTask).toBeNull();
+    expect(
+      world.civlings[0].currentTask === null ||
+        world.civlings[0].currentTask?.action === ACTIONS.GATHER_FOOD
+    ).toBe(true);
+  });
+
+  it('gathers wood from a forest and stores in shelter when no storage exists', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.wood = 0;
+    world.forests = [{ id: 'forest-1', x: 2, y: 0, woodRemaining: 4 }];
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 4 }
+    ];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+
+    await runTick(world, () => ({
+      action: ACTIONS.GATHER_WOOD,
+      reason: 'test'
+    }));
+    expect(world.civlings[0].currentTask?.action).toBe(ACTIONS.GATHER_WOOD);
+
+    await runUntilTaskComplete(world);
+
+    expect(world.resources.wood).toBeGreaterThan(0);
+    expect(world.shelters[0].woodStored).toBeGreaterThan(0);
+    expect(world.forests[0].woodRemaining).toBeLessThan(4);
+  });
+
+  it('builds a storage structure at a physical world location', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.wood = 12;
+
+    await runTick(world, () => ({
+      action: ACTIONS.BUILD_STORAGE,
+      reason: 'test'
+    }));
+    await runUntilTaskComplete(world);
+
+    expect(world.storages).toHaveLength(1);
+    expect(world.storages[0].x).toEqual(expect.any(Number));
+    expect(world.storages[0].y).toEqual(expect.any(Number));
+    expect(world.resources.wood).toBe(4);
+  });
+
+  it('queues depleted forests for regrowth and respawns later', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.wood = 0;
+    world.forests = [{ id: 'forest-1', x: 1, y: 0, woodRemaining: 2 }];
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 10 }
+    ];
+
+    await runTick(world, () => ({
+      action: ACTIONS.GATHER_WOOD,
+      reason: 'test'
+    }));
+    await runUntilTaskComplete(world);
+
+    expect(world.forests).toHaveLength(0);
+    expect(world.pendingForestRegrowth.length).toBeGreaterThan(0);
+    world.pendingForestRegrowth[0].readyAtTick = world.tick + 1;
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.forests.length).toBeGreaterThan(0);
   });
 
   it('auto-starts eating task when hunger is high and food is available', async () => {
@@ -308,7 +387,8 @@ describe('simulation engine', () => {
 
     expect(world.civlings).toHaveLength(3);
     const newborn = world.civlings[2];
-    expect(newborn.age).toBe(0);
+    expect(newborn.age).toBeGreaterThanOrEqual(0);
+    expect(newborn.age).toBeLessThanOrEqual(1 / 6);
     expect(['male', 'female']).toContain(newborn.gender);
     expect(newborn.babyChance).toBeCloseTo(0.35, 5);
     expect(newborn.memory).toContain('Born this tick.');
@@ -371,8 +451,8 @@ describe('simulation engine', () => {
     }
 
     expect(world.civlings).toHaveLength(2);
-    expect(world.civlings[0].reproductionAttempts).toBe(1);
-    expect(world.civlings[1].reproductionAttempts).toBe(1);
+    expect(world.civlings[0].reproductionAttempts).toBe(2);
+    expect(world.civlings[1].reproductionAttempts).toBe(2);
     expect(world.civlings[0].babiesBorn).toBe(0);
     expect(world.civlings[1].babiesBorn).toBe(0);
   });

@@ -35,6 +35,7 @@ export function decideDeterministicAction(civling, world) {
   const careUnlocked = world.milestones.includes(MILESTONES.TOOLS);
   const injuredExists = aliveCivlings.some((item) => item.health < 90);
   const shelterDeficit = shelterTarget - world.resources.shelterCapacity;
+  const hasStorage = (world.storages?.length ?? 0) > 0;
   const isSnowExposureRisk =
     world.environment.weather === 'snowy' && shelterDeficit > 0;
   const isColdNightExposureRisk =
@@ -87,10 +88,24 @@ export function decideDeterministicAction(civling, world) {
   }
 
   if (
+    !hasStorage &&
+    world.resources.wood >= GAME_RULES.storage.woodCostPerUnit
+  ) {
+    return { action: ACTIONS.BUILD_STORAGE, reason: 'missing_storage' };
+  }
+
+  if (
     world.resources.shelterCapacity < shelterTarget &&
     world.resources.wood >= GAME_RULES.shelter.woodCostPerUnit
   ) {
     return { action: ACTIONS.BUILD_SHELTER, reason: 'insufficient_shelter' };
+  }
+
+  if (
+    !hasStorage &&
+    world.resources.wood < GAME_RULES.storage.woodCostPerUnit
+  ) {
+    return { action: ACTIONS.GATHER_WOOD, reason: 'storage_wood_target' };
   }
 
   if (

@@ -24,6 +24,7 @@
  * @property {number} totalMinutes
  * @property {number} remainingMinutes
  * @property {number} startedAtTick
+ * @property {Object<string, unknown>} [meta]
  */
 
 /**
@@ -58,6 +59,50 @@
  * @property {number} wood
  * @property {number} shelterCapacity
  */
+/**
+ * @typedef {Object} Position
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * @typedef {Object} ForestNode
+ * @property {string} id
+ * @property {number} x
+ * @property {number} y
+ * @property {number} woodRemaining
+ */
+
+/**
+ * @typedef {Object} ShelterSite
+ * @property {string} id
+ * @property {number} x
+ * @property {number} y
+ * @property {number} woodStored
+ * @property {number} woodCapacity
+ */
+
+/**
+ * @typedef {Object} StorageSite
+ * @property {string} id
+ * @property {number} x
+ * @property {number} y
+ * @property {number} woodStored
+ * @property {number} woodCapacity
+ */
+
+/**
+ * @typedef {Object} PendingForestRegrowth
+ * @property {number} readyAtTick
+ * @property {number} [x]
+ * @property {number} [y]
+ */
+
+/**
+ * @typedef {Object} WorldMap
+ * @property {number} width
+ * @property {number} height
+ */
 
 /**
  * @typedef {Object} ExtinctionMetadata
@@ -91,6 +136,11 @@
  * @property {Resources} resources
  * @property {string[]} milestones
  * @property {Civling[]} civlings
+ * @property {WorldMap} map
+ * @property {ForestNode[]} forests
+ * @property {ShelterSite[]} shelters
+ * @property {StorageSite[]} storages
+ * @property {PendingForestRegrowth[]} pendingForestRegrowth
  * @property {ExtinctionMetadata} extinction
  */
 

@@ -9,7 +9,23 @@
   "shelter": {
     "woodCostPerUnit": 4,
     "capacityPerUnit": 2,
-    "restEnergyBonusWhenSheltered": 8
+    "restEnergyBonusWhenSheltered": 8,
+    "woodCapacityPerUnit": 4
+  },
+  "storage": {
+    "woodCostPerUnit": 8,
+    "woodCapacityPerUnit": 24
+  },
+  "forests": {
+    "initialCount": 5,
+    "woodPerForest": 12,
+    "regrowthTicksMin": 8,
+    "regrowthTicksMax": 16,
+    "harvestMinutes": 30
+  },
+  "world": {
+    "width": 36,
+    "height": 24
   },
   "survival": {
     "starvationHungerRiskThreshold": 70,

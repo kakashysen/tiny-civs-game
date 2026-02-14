@@ -6,6 +6,7 @@ export const ACTIONS = Object.freeze({
   GATHER_FOOD: 'gather_food',
   GATHER_WOOD: 'gather_wood',
   BUILD_SHELTER: 'build_shelter',
+  BUILD_STORAGE: 'build_storage',
   REST: 'rest',
   EXPLORE: 'explore',
   REPRODUCE: 'reproduce'
@@ -34,6 +35,12 @@ export const ACTION_VALUES = Object.freeze({
     energyCost: 3,
     hungerDelta: 6
   },
+  [ACTIONS.BUILD_STORAGE]: {
+    woodCost: 6,
+    storage: 1,
+    energyCost: 4,
+    hungerDelta: 6
+  },
   [ACTIONS.REST]: { energyGain: 18, hungerDelta: 5 },
   [ACTIONS.EXPLORE]: {
     chanceFood: 0.35,
@@ -54,6 +61,7 @@ export const ADULT_ALLOWED_ACTIONS = Object.freeze([
   ACTIONS.GATHER_FOOD,
   ACTIONS.GATHER_WOOD,
   ACTIONS.BUILD_SHELTER,
+  ACTIONS.BUILD_STORAGE,
   ACTIONS.CARE,
   ACTIONS.REST,
   ACTIONS.EXPLORE,
@@ -68,6 +76,7 @@ export const ACTION_DURATION_MINUTES = Object.freeze({
   [ACTIONS.GATHER_FOOD]: 20,
   [ACTIONS.GATHER_WOOD]: [3, 5],
   [ACTIONS.BUILD_SHELTER]: 50,
+  [ACTIONS.BUILD_STORAGE]: 60,
   [ACTIONS.REST]: 60,
   [ACTIONS.EXPLORE]: 30,
   [ACTIONS.REPRODUCE]: 30
