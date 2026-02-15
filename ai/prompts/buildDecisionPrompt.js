@@ -74,6 +74,16 @@ function getReproductionContext(civling, world, aliveCivlings, reserveTarget) {
       firstAttemptUrgent
     };
   }
+  const insideShelter = (world.shelters ?? []).some(
+    (shelter) => shelter.x === civling.x && shelter.y === civling.y
+  );
+  if (!insideShelter) {
+    return {
+      canReproduceNow: false,
+      reason: 'not_in_shelter',
+      firstAttemptUrgent
+    };
+  }
   return { canReproduceNow: true, reason: 'ready', firstAttemptUrgent };
 }
 
@@ -124,7 +134,9 @@ export function buildDecisionPrompt(civling, world) {
       food: world.resources.food,
       foodReserveTarget: reserveTarget,
       wood: world.resources.wood,
+      fiber: world.resources.fiber ?? 0,
       forestsAvailable: world.forests?.length ?? 0,
+      meadowsAvailable: world.meadows?.length ?? 0,
       storagesBuilt: world.storages?.length ?? 0,
       sheltersBuilt: world.shelters?.length ?? 0,
       time: world.time,
@@ -142,7 +154,8 @@ export function buildDecisionPrompt(civling, world) {
       shelter: GAME_RULES.shelter,
       storage: GAME_RULES.storage,
       reproduction: GAME_RULES.reproduction,
-      healing: GAME_RULES.healing
+      healing: GAME_RULES.healing,
+      protection: GAME_RULES.protection
     },
     reproduction,
     allowedActions
@@ -155,21 +168,23 @@ export function buildDecisionPrompt(civling, world) {
     'Choose the most balanced action, not only immediate food gathering.',
     'Follow the civling personality style and goals when there is no survival emergency.',
     'Be strict with the rules and constraints, and avoid suggesting actions that could lead to starvation or energy depletion.',
-    'Priority order: 1) avoid starvation, 2) secure wood logistics (storage/shelter capacity), 3) build enough shelter for alive civlings, 4) reproduce only when stable, 5) explore.',
+    'Priority order: 1) avoid starvation, 2) survive weather risk with shelter/protection, 3) secure wood/fiber logistics, 4) reproduce only when stable and sheltered, 5) explore.',
     'Hard rule: if no storage exists and wood >= rules.storage.woodCostPerUnit, prefer build_storage.',
     'Hard rule: if no storage exists and wood < rules.storage.woodCostPerUnit, prioritize gather_wood unless there is immediate food risk.',
     'Hard rule: choose build_shelter ONLY if world.shelterNeeded > 0.',
     'Hard rule: if world.shelterNeeded <= 0, do not choose build_shelter.',
     'Hard rule: if world.shelterNeeded > 0 and world.wood >= rules.shelter.woodCostPerUnit and civling.energy >= 35, prioritize build_shelter.',
-    'Hard rule: when weather is snowy and shelter is insufficient, prioritize build_shelter or gather_wood; exposed civlings can die.',
-    'Hard rule: during cold nights with insufficient shelter, avoid risky outdoor actions.',
+    'Hard rule: when weather is snowy and civling is outside shelter without protection, avoid risky outdoor actions.',
+    'Hard rule: during cold nights outside shelter without protection, avoid risky outdoor actions.',
+    'Hard rule: if weather risk is high and build_shelter is not possible, prefer prepare_warm_meal or craft_clothes before outdoor gathering.',
     'Hard rule: do not choose rest unless civling.energy <= 35 or civling.hunger >= 80.',
     'Hard rule: if recent memory already contains repeated rest and there is no emergency, choose a productive action.',
     'Rules: maintain food reserve near foodReserveTarget; gather_food when below target, diversify when above target.',
     'Rules: if hunger <= 45 and world food >= foodReserveTarget, avoid gather_food and progress wood/shelter/explore.',
     'Rules: build_shelter is important because rest recovers more energy when shelter capacity covers civlings.',
     'Rules: gather_wood now requires travel to finite forests and carrying logs to storage/shelter.',
-    'Hard rule: choose reproduce only if reproduction.canReproduceNow is true.',
+    'Rules: gather_fiber uses meadow resources and supports crafting protective clothes.',
+    'Hard rule: choose reproduce only if reproduction.canReproduceNow is true and civling is physically inside shelter.',
     'Hard rule: when reproduction.canReproduceNow is false, do not choose reproduce.',
     'Hard rule: if civling is young, choose only play, learn, or rest.',
     'Hard rule: if civling is adult, do not choose play or learn.',

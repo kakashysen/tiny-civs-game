@@ -225,6 +225,9 @@ function applyReproductionPolicy(civling, world, envelope) {
     world.resources.food >=
       Math.max(GAME_RULES.food.reserveMinimum, reserveTarget - 2) &&
     shelterReady &&
+    world.shelters.some(
+      (shelter) => shelter.x === civling.x && shelter.y === civling.y
+    ) &&
     partnerExists;
 
   if (ready) {
@@ -246,16 +249,18 @@ function applyReproductionPolicy(civling, world, envelope) {
  * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
  */
 function applyWeatherRiskPolicy(civling, world, envelope) {
-  const aliveCount = world.civlings.filter(
-    (item) => item.status === 'alive'
-  ).length;
-  const shelterCovered =
-    world.resources.shelterCapacity >= aliveCount && aliveCount > 0;
+  const outsideShelter = !(world.shelters ?? []).some(
+    (shelter) => shelter.x === civling.x && shelter.y === civling.y
+  );
+  const hasProtection =
+    (civling.weatherProtection?.foodBuffTicks ?? 0) > 0 ||
+    (civling.weatherProtection?.gearCharges ?? 0) > 0;
   const risk =
     (world.environment.weather === 'snowy' ||
       (world.time.phase === 'night' &&
         world.environment.nightTemperature === 'cold')) &&
-    !shelterCovered;
+    outsideShelter &&
+    !hasProtection;
   if (!risk) {
     return envelope;
   }

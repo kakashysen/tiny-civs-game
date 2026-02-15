@@ -26,6 +26,7 @@ body {
   grid-template-areas:
     'controls metrics world'
     'history thoughts world'
+    'history diagnostics world'
     'llm llm world'
     'actions actions world'
     'civlings civlings world';
@@ -50,6 +51,10 @@ body {
 
 .thoughts {
   grid-area: thoughts;
+}
+
+.diagnostics {
+  grid-area: diagnostics;
 }
 
 .llm {
@@ -139,6 +144,7 @@ button:hover {
 #metricsList,
 #runHistory,
 #thoughtLog,
+#diagnosticsLog,
 #llmExchangeLog {
   margin: 0;
   padding-left: 18px;
@@ -151,6 +157,16 @@ button:hover {
 
 #thoughtLog li {
   margin-bottom: 6px;
+  line-height: 1.25;
+}
+
+#diagnosticsLog {
+  max-height: 220px;
+  overflow: auto;
+}
+
+#diagnosticsLog li {
+  margin-bottom: 8px;
   line-height: 1.25;
 }
 

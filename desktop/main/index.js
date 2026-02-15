@@ -34,6 +34,8 @@ let runHistory = [];
 let thoughtLog = [];
 /** @type {Array<{runId: string, tick: number, civlingId: string, civlingName: string, prompt: string, response: string, status: string}>} */
 let llmExchangeLog = [];
+/** @type {Array<{runId: string, tick: number, civlingId: string, civlingName: string, eventType: 'health_loss'|'death'|'hunger_spike', action: string, reason: string, summary: string, healthDelta: number, energyDelta: number, hungerDelta: number, weather: string, phase: string, memory: string}>} */
+let diagnosticsLog = [];
 let desiredCivlingCount = DEFAULT_CIVLING_COUNT;
 let lastTickStartedAtMs = null;
 let lastTickCompletedAtMs = null;
@@ -63,6 +65,109 @@ function pushThought(entry) {
 
 function pushLlmExchange(entry) {
   llmExchangeLog = [entry, ...llmExchangeLog].slice(0, 150);
+}
+
+function pushDiagnostic(entry) {
+  diagnosticsLog = [entry, ...diagnosticsLog].slice(0, 500);
+}
+
+/**
+ * Captures lightweight civling vitals snapshot for post-tick diagnostics.
+ * @param {import('../../shared/types.js').WorldState} state
+ */
+function snapshotCivlingVitals(state) {
+  return new Map(
+    state.civlings.map((civling) => [
+      civling.id,
+      {
+        status: civling.status,
+        health: civling.health,
+        energy: civling.energy,
+        hunger: civling.hunger,
+        memory: civling.memory[civling.memory.length - 1] ?? ''
+      }
+    ])
+  );
+}
+
+/**
+ * Appends diagnostics entries from per-tick civling deltas.
+ * @param {import('../../shared/types.js').WorldState} state
+ * @param {Map<string, {status: string, health: number, energy: number, hunger: number, memory: string}>} beforeById
+ * @param {Map<string, {action: string, reason: string}>} decisionById
+ */
+function collectTickDiagnostics(state, beforeById, decisionById) {
+  for (const civling of state.civlings) {
+    const before = beforeById.get(civling.id);
+    if (!before) {
+      continue;
+    }
+    const healthDelta = Math.round((civling.health - before.health) * 100) / 100;
+    const energyDelta = Math.round((civling.energy - before.energy) * 100) / 100;
+    const hungerDelta = Math.round((civling.hunger - before.hunger) * 100) / 100;
+    const decision = decisionById.get(civling.id);
+    const action = decision?.action ?? civling.currentTask?.action ?? 'none';
+    const reason = decision?.reason ?? 'no_decision_recorded';
+    const latestMemory = civling.memory[civling.memory.length - 1] ?? before.memory;
+
+    if (healthDelta < 0) {
+      pushDiagnostic({
+        runId: state.runId,
+        tick: state.tick,
+        civlingId: civling.id,
+        civlingName: civling.name,
+        eventType: 'health_loss',
+        action,
+        reason,
+        summary: `${civling.name} lost ${Math.abs(healthDelta)} health.`,
+        healthDelta,
+        energyDelta,
+        hungerDelta,
+        weather: state.environment.weather,
+        phase: state.time.phase,
+        memory: latestMemory
+      });
+    }
+
+    if (before.status !== 'dead' && civling.status === 'dead') {
+      pushDiagnostic({
+        runId: state.runId,
+        tick: state.tick,
+        civlingId: civling.id,
+        civlingName: civling.name,
+        eventType: 'death',
+        action,
+        reason,
+        summary: `${civling.name} died (health=${Math.round(civling.health)}, hunger=${Math.round(civling.hunger)}).`,
+        healthDelta,
+        energyDelta,
+        hungerDelta,
+        weather: state.environment.weather,
+        phase: state.time.phase,
+        memory: latestMemory
+      });
+      continue;
+    }
+
+    if (hungerDelta >= 10) {
+      pushDiagnostic({
+        runId: state.runId,
+        tick: state.tick,
+        civlingId: civling.id,
+        civlingName: civling.name,
+        eventType: 'hunger_spike',
+        action,
+        reason,
+        summary: `${civling.name} hunger spiked by ${hungerDelta}.`,
+        healthDelta,
+        energyDelta,
+        hungerDelta,
+        weather: state.environment.weather,
+        phase: state.time.phase,
+        memory: latestMemory
+      });
+    }
+  }
 }
 
 /**
@@ -100,6 +205,7 @@ function buildSimPayload(extra = {}) {
     runHistory,
     thoughtLog,
     llmExchangeLog,
+    diagnosticsLog,
     desiredCivlingCount,
     movement: buildMovementPayload(),
     ...extra
@@ -144,6 +250,8 @@ async function tickOnce() {
   lastTickStartedAtMs = tickStartedAt;
 
   try {
+    const beforeById = snapshotCivlingVitals(world);
+    const decisionById = new Map();
     world = await runTick(
       world,
       async (civling, state) => {
@@ -165,6 +273,10 @@ async function tickOnce() {
             source: entry.source,
             fallback: entry.fallback
           });
+          decisionById.set(entry.civlingId, {
+            action: entry.action,
+            reason: entry.reason
+          });
           if (entry.llmTrace) {
             pushLlmExchange({
               runId: world.runId,
@@ -179,6 +291,7 @@ async function tickOnce() {
         }
       }
     );
+    collectTickDiagnostics(world, beforeById, decisionById);
 
     if (
       world.tick % config.SIM_SNAPSHOT_EVERY_TICKS === 0 ||
@@ -267,6 +380,7 @@ app.whenReady().then(() => {
       });
       thoughtLog = [];
       llmExchangeLog = [];
+      diagnosticsLog = [];
       lastTickStartedAtMs = null;
       lastTickCompletedAtMs = null;
       lastTickDurationMs = null;
@@ -295,6 +409,7 @@ app.whenReady().then(() => {
     runHistory = [];
     thoughtLog = [];
     llmExchangeLog = [];
+    diagnosticsLog = [];
     lastTickStartedAtMs = null;
     lastTickCompletedAtMs = null;
     lastTickDurationMs = null;

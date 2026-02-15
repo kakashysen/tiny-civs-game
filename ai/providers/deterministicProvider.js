@@ -15,6 +15,18 @@ function getShelterTarget(aliveCivlingCount) {
 }
 
 /**
+ * Returns true when a civling currently occupies a shelter tile.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @returns {boolean}
+ */
+function isInsideShelter(civling, world) {
+  return (world.shelters ?? []).some(
+    (shelter) => shelter.x === civling.x && shelter.y === civling.y
+  );
+}
+
+/**
  * @param {import('../../shared/types.js').Civling} civling
  * @param {import('../../shared/types.js').WorldState} world
  * @returns {import('../../shared/types.js').ActionEnvelope}
@@ -34,14 +46,18 @@ export function decideDeterministicAction(civling, world) {
   const isAdult = civling.age >= GAME_RULES.reproduction.minAdultAge;
   const careUnlocked = world.milestones.includes(MILESTONES.TOOLS);
   const injuredExists = aliveCivlings.some((item) => item.health < 90);
-  const shelterDeficit = shelterTarget - world.resources.shelterCapacity;
   const hasStorage = (world.storages?.length ?? 0) > 0;
+  const inShelter = isInsideShelter(civling, world);
+  const hasProtection =
+    (civling.weatherProtection?.foodBuffTicks ?? 0) > 0 ||
+    (civling.weatherProtection?.gearCharges ?? 0) > 0;
   const isSnowExposureRisk =
-    world.environment.weather === 'snowy' && shelterDeficit > 0;
+    world.environment.weather === 'snowy' && !inShelter && !hasProtection;
   const isColdNightExposureRisk =
     world.time.phase === 'night' &&
     world.environment.nightTemperature === 'cold' &&
-    shelterDeficit > 0;
+    !inShelter &&
+    !hasProtection;
 
   if (isAdult && (isSnowExposureRisk || isColdNightExposureRisk)) {
     if (world.resources.wood >= GAME_RULES.shelter.woodCostPerUnit) {
@@ -50,9 +66,43 @@ export function decideDeterministicAction(civling, world) {
         reason: 'weather_exposure_shelter_priority'
       };
     }
+    if (
+      !hasProtection &&
+      world.resources.food >= GAME_RULES.protection.warmMealFoodCost
+    ) {
+      return {
+        action: ACTIONS.PREPARE_WARM_MEAL,
+        reason: 'weather_exposure_warm_meal_priority'
+      };
+    }
+    if (
+      !hasProtection &&
+      world.resources.fiber >= GAME_RULES.protection.fiberCostPerClothes &&
+      world.resources.wood >= GAME_RULES.protection.woodCostPerClothes
+    ) {
+      return {
+        action: ACTIONS.CRAFT_CLOTHES,
+        reason: 'weather_exposure_craft_clothes_priority'
+      };
+    }
+    if (!hasProtection && (world.meadows?.length ?? 0) > 0) {
+      return {
+        action: ACTIONS.GATHER_FIBER,
+        reason: 'weather_exposure_fiber_priority'
+      };
+    }
+    if (
+      hasProtection &&
+      world.resources.wood < GAME_RULES.shelter.woodCostPerUnit
+    ) {
+      return {
+        action: ACTIONS.GATHER_WOOD,
+        reason: 'weather_exposure_wood_priority_protected'
+      };
+    }
     return {
-      action: ACTIONS.GATHER_WOOD,
-      reason: 'weather_exposure_wood_priority'
+      action: ACTIONS.REST,
+      reason: 'weather_exposure_hold_position'
     };
   }
 
@@ -150,6 +200,7 @@ export function decideDeterministicAction(civling, world) {
     hasFoodReserve &&
     isAdult &&
     hasGoodVitals &&
+    inShelter &&
     partnerExists &&
     (shouldPrioritizeFirstAttempt || civling.energy >= 55)
   ) {

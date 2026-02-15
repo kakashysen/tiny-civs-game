@@ -30,6 +30,13 @@ const DEFAULT_GAME_RULES = Object.freeze({
     regrowthTicksMax: 16,
     harvestMinutes: 30
   },
+  meadows: {
+    initialCount: 4,
+    fiberPerMeadow: 10,
+    regrowthTicksMin: 8,
+    regrowthTicksMax: 16,
+    harvestMinutes: 30
+  },
   world: {
     width: 36,
     height: 24
@@ -52,6 +59,24 @@ const DEFAULT_GAME_RULES = Object.freeze({
     agricultureHungerThreshold: 40,
     careMinEnergy: 30,
     careMaxHunger: 75
+  },
+  weather: {
+    snowyExposedHealthLossPerTick: 12,
+    snowyExposedEnergyLossPerTick: 8,
+    snowyCriticalExtraHealthLoss: 8,
+    coldNightExposedHealthLossPerTick: 4,
+    coldNightExposedEnergyLossPerTick: 5,
+    coldNightShelteredEnergyLossPerTick: 2
+  },
+  protection: {
+    fiberPerGather: 2,
+    fiberCostPerClothes: 6,
+    woodCostPerClothes: 2,
+    gearChargesPerCraft: 8,
+    warmMealFoodCost: 1,
+    warmMealBuffTicks: 3,
+    snowyDamageReductionWithProtection: 8,
+    coldNightDamageReductionWithProtection: 3
   }
 });
 
@@ -61,13 +86,19 @@ function mergeRules(overrides = {}) {
     shelter: { ...DEFAULT_GAME_RULES.shelter, ...(overrides.shelter ?? {}) },
     storage: { ...DEFAULT_GAME_RULES.storage, ...(overrides.storage ?? {}) },
     forests: { ...DEFAULT_GAME_RULES.forests, ...(overrides.forests ?? {}) },
+    meadows: { ...DEFAULT_GAME_RULES.meadows, ...(overrides.meadows ?? {}) },
     world: { ...DEFAULT_GAME_RULES.world, ...(overrides.world ?? {}) },
     survival: { ...DEFAULT_GAME_RULES.survival, ...(overrides.survival ?? {}) },
     reproduction: {
       ...DEFAULT_GAME_RULES.reproduction,
       ...(overrides.reproduction ?? {})
     },
-    healing: { ...DEFAULT_GAME_RULES.healing, ...(overrides.healing ?? {}) }
+    healing: { ...DEFAULT_GAME_RULES.healing, ...(overrides.healing ?? {}) },
+    weather: { ...DEFAULT_GAME_RULES.weather, ...(overrides.weather ?? {}) },
+    protection: {
+      ...DEFAULT_GAME_RULES.protection,
+      ...(overrides.protection ?? {})
+    }
   };
 }
 

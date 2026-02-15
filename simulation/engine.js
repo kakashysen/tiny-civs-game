@@ -176,6 +176,21 @@ function createForestNode(x, y) {
 }
 
 /**
+ * Creates a meadow node at a world coordinate.
+ * @param {number} x
+ * @param {number} y
+ * @returns {import('../shared/types.js').MeadowNode}
+ */
+function createMeadowNode(x, y) {
+  return {
+    id: randomId('meadow'),
+    x,
+    y,
+    fiberRemaining: GAME_RULES.meadows.fiberPerMeadow
+  };
+}
+
+/**
  * Picks a free nearby tile for construction.
  * @param {import('../shared/types.js').WorldState} world
  * @param {{x: number, y: number}} origin
@@ -244,6 +259,42 @@ function applyForestRegrowth(world) {
 }
 
 /**
+ * Replenishes meadows whose regrowth timer has elapsed.
+ * @param {import('../shared/types.js').WorldState} world
+ */
+function applyMeadowRegrowth(world) {
+  const ready = world.pendingMeadowRegrowth.filter(
+    (entry) => entry.readyAtTick <= world.tick
+  );
+  world.pendingMeadowRegrowth = world.pendingMeadowRegrowth.filter(
+    (entry) => entry.readyAtTick > world.tick
+  );
+  for (const entry of ready) {
+    let position = null;
+    if (
+      typeof entry.x === 'number' &&
+      typeof entry.y === 'number' &&
+      isInWorldBounds(world, entry.x, entry.y) &&
+      !isBlockedTile(world, entry.x, entry.y)
+    ) {
+      position = { x: entry.x, y: entry.y };
+    }
+    if (!position) {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const candidate = randomWorldPosition(world);
+        if (!isBlockedTile(world, candidate.x, candidate.y)) {
+          position = candidate;
+          break;
+        }
+      }
+    }
+    if (position) {
+      world.meadows.push(createMeadowNode(position.x, position.y));
+    }
+  }
+}
+
+/**
  * Enqueues a depleted forest for delayed random regrowth.
  * @param {import('../shared/types.js').WorldState} world
  * @param {{x: number, y: number}} origin
@@ -261,6 +312,23 @@ function queueForestRegrowth(world, origin) {
 }
 
 /**
+ * Enqueues a depleted meadow for delayed random regrowth.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {{x: number, y: number}} origin
+ */
+function queueMeadowRegrowth(world, origin) {
+  const minTicks = Math.max(1, GAME_RULES.meadows.regrowthTicksMin);
+  const maxTicks = Math.max(minTicks, GAME_RULES.meadows.regrowthTicksMax);
+  const delay =
+    minTicks + Math.floor(Math.random() * (maxTicks - minTicks + 1));
+  world.pendingMeadowRegrowth.push({
+    readyAtTick: world.tick + delay,
+    x: origin.x,
+    y: origin.y
+  });
+}
+
+/**
  * Returns whether shelter capacity can currently cover all alive civlings.
  * @param {import('../shared/types.js').WorldState} world
  * @returns {boolean}
@@ -271,24 +339,53 @@ function hasFullShelterCoverage(world) {
 }
 
 /**
+ * Returns true when a civling currently occupies a shelter tile.
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {import('../shared/types.js').WorldState} world
+ * @returns {boolean}
+ */
+function isInsideShelter(civling, world) {
+  return world.shelters.some(
+    (shelter) => shelter.x === civling.x && shelter.y === civling.y
+  );
+}
+
+/**
  * Returns whether a civling is exposed to harsh weather.
  * @param {import('../shared/types.js').Civling} civling
  * @param {import('../shared/types.js').WorldState} world
  * @returns {boolean}
  */
 function isExposedToWeather(civling, world) {
-  if (!hasFullShelterCoverage(world)) {
-    return true;
-  }
-  const action = civling.currentTask?.action;
-  if (!action) {
-    return false;
-  }
+  return !isInsideShelter(civling, world);
+}
+
+/**
+ * Returns true when action generally takes place outside shelter.
+ * @param {string|undefined} action
+ * @returns {boolean}
+ */
+function isOutdoorAction(action) {
   return (
-    action !== ACTIONS.REST &&
-    action !== ACTIONS.BUILD_SHELTER &&
-    action !== ACTIONS.BUILD_STORAGE &&
-    action !== ACTIONS.EAT
+    action === ACTIONS.GATHER_WOOD ||
+    action === ACTIONS.GATHER_FOOD ||
+    action === ACTIONS.GATHER_FIBER ||
+    action === ACTIONS.EXPLORE ||
+    action === ACTIONS.BUILD_SHELTER ||
+    action === ACTIONS.BUILD_STORAGE
+  );
+}
+
+/**
+ * Returns true when harsh exposure weather conditions are active.
+ * @param {import('../shared/types.js').WorldState} world
+ * @returns {boolean}
+ */
+function isHarshExposureRisk(world) {
+  return (
+    world.environment.weather === 'snowy' ||
+    (world.time.phase === 'night' &&
+      world.environment.nightTemperature === 'cold')
   );
 }
 
@@ -359,6 +456,26 @@ export function getAllowedActionsForCivling(civling, world = null) {
 function resolveCivlingAction(world, civling, requestedAction) {
   if (requestedAction === ACTIONS.EAT) {
     return ACTIONS.EAT;
+  }
+  if (
+    isHarshExposureRisk(world) &&
+    !hasFullShelterCoverage(world) &&
+    requestedAction &&
+    isOutdoorAction(requestedAction)
+  ) {
+    if (world.resources.wood >= GAME_RULES.shelter.woodCostPerUnit) {
+      return ACTIONS.BUILD_SHELTER;
+    }
+    if (world.resources.food >= GAME_RULES.protection.warmMealFoodCost) {
+      return ACTIONS.PREPARE_WARM_MEAL;
+    }
+    if (
+      world.resources.fiber >= GAME_RULES.protection.fiberCostPerClothes &&
+      world.resources.wood >= GAME_RULES.protection.woodCostPerClothes
+    ) {
+      return ACTIONS.CRAFT_CLOTHES;
+    }
+    return ACTIONS.REST;
   }
   const allowed = getAllowedActionsForCivling(civling, world);
   if (requestedAction && allowed.includes(requestedAction)) {
@@ -487,6 +604,29 @@ function findNearestReachableForest(world, civling) {
 }
 
 /**
+ * Finds the nearest reachable meadow with remaining fiber.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {{meadow: import('../shared/types.js').MeadowNode, path: import('../shared/types.js').Position[]}|null}
+ */
+function findNearestReachableMeadow(world, civling) {
+  let best = null;
+  for (const meadow of world.meadows) {
+    if (meadow.fiberRemaining <= 0) {
+      continue;
+    }
+    const path = buildPath(world, civling, meadow);
+    if (!path) {
+      continue;
+    }
+    if (!best || path.length < best.path.length) {
+      best = { meadow, path };
+    }
+  }
+  return best;
+}
+
+/**
  * Finds the best drop-off site for carrying wood.
  * @param {import('../shared/types.js').WorldState} world
  * @param {{x: number, y: number}} from
@@ -536,7 +676,9 @@ function getGatherWoodTaskPlan(world, civling) {
     GAME_RULES.forests.harvestMinutes
   );
   const walkMinutes = nearestForest.path.length * TIME.MINUTES_PER_TICK;
-  const returnMinutes = dropoff ? dropoff.path.length * TIME.MINUTES_PER_TICK : 0;
+  const returnMinutes = dropoff
+    ? dropoff.path.length * TIME.MINUTES_PER_TICK
+    : 0;
   const initialPhase =
     nearestForest.path.length > 0 ? 'travel_to_source' : 'work_at_source';
   return {
@@ -592,12 +734,12 @@ function getGatherWoodTaskPlan(world, civling) {
 function isGatherTaskMeta(taskMeta) {
   return Boolean(
     taskMeta &&
-      typeof taskMeta === 'object' &&
-      typeof taskMeta.phase === 'string' &&
-      taskMeta.paths &&
-      typeof taskMeta.paths === 'object' &&
-      taskMeta.yield &&
-      typeof taskMeta.yield === 'object'
+    typeof taskMeta === 'object' &&
+    typeof taskMeta.phase === 'string' &&
+    taskMeta.paths &&
+    typeof taskMeta.paths === 'object' &&
+    taskMeta.yield &&
+    typeof taskMeta.yield === 'object'
   );
 }
 
@@ -627,7 +769,9 @@ function applyGatherHarvest(world, civling, taskMeta) {
   }
   const forest = resolveGatherForest(world, taskMeta);
   const yieldInfo =
-    taskMeta.yield && typeof taskMeta.yield === 'object' ? taskMeta.yield : null;
+    taskMeta.yield && typeof taskMeta.yield === 'object'
+      ? taskMeta.yield
+      : null;
   const plannedAmount =
     yieldInfo && typeof yieldInfo.amount === 'number' ? yieldInfo.amount : 0;
 
@@ -659,7 +803,9 @@ function applyGatherHarvest(world, civling, taskMeta) {
  */
 function applyGatherDeposit(world, civling, taskMeta) {
   const yieldInfo =
-    taskMeta.yield && typeof taskMeta.yield === 'object' ? taskMeta.yield : null;
+    taskMeta.yield && typeof taskMeta.yield === 'object'
+      ? taskMeta.yield
+      : null;
   const carried =
     yieldInfo && typeof yieldInfo.carried === 'number' ? yieldInfo.carried : 0;
   if (carried <= 0) {
@@ -683,7 +829,10 @@ function applyGatherDeposit(world, civling, taskMeta) {
     return;
   }
 
-  const freeCapacity = Math.max(0, dropoffSite.woodCapacity - dropoffSite.woodStored);
+  const freeCapacity = Math.max(
+    0,
+    dropoffSite.woodCapacity - dropoffSite.woodStored
+  );
   const storedAmount = Math.min(carried, freeCapacity);
   if (storedAmount > 0) {
     dropoffSite.woodStored += storedAmount;
@@ -720,7 +869,9 @@ function progressGatherTask(world, civling, taskMeta) {
       const progress = taskMeta.pathProgress;
       const path = Array.isArray(paths?.toSource) ? paths.toSource : [];
       const pathIndex =
-        progress && typeof progress.toSource === 'number' ? progress.toSource : 0;
+        progress && typeof progress.toSource === 'number'
+          ? progress.toSource
+          : 0;
       if (pathIndex >= path.length) {
         taskMeta.phase = 'work_at_source';
         continue;
@@ -754,7 +905,9 @@ function progressGatherTask(world, civling, taskMeta) {
         if (taskMeta.phase === 'done') {
           break;
         }
-        taskMeta.phase = taskMeta.dropoff ? 'travel_to_dropoff' : 'deposit_output';
+        taskMeta.phase = taskMeta.dropoff
+          ? 'travel_to_dropoff'
+          : 'deposit_output';
         continue;
       }
       const workSlice = Math.min(workRemaining, minutesBudget);
@@ -766,7 +919,9 @@ function progressGatherTask(world, civling, taskMeta) {
         if (taskMeta.phase === 'done') {
           break;
         }
-        taskMeta.phase = taskMeta.dropoff ? 'travel_to_dropoff' : 'deposit_output';
+        taskMeta.phase = taskMeta.dropoff
+          ? 'travel_to_dropoff'
+          : 'deposit_output';
       }
       continue;
     }
@@ -960,6 +1115,10 @@ function createCivling({
     reproduceIntentTick: null,
     currentTask: null,
     personality,
+    weatherProtection: {
+      gearCharges: 0,
+      foodBuffTicks: 0
+    },
     x,
     y
   };
@@ -988,6 +1147,34 @@ function seedInitialForests(world) {
     }
     if (position) {
       world.forests.push(createForestNode(position.x, position.y));
+    }
+  }
+}
+
+/**
+ * Seeds initial meadows at random walkable positions.
+ * @param {import('../shared/types.js').WorldState} world
+ */
+function seedInitialMeadows(world) {
+  const desired = Math.max(1, GAME_RULES.meadows.initialCount);
+  const occupied = new Set([
+    ...world.civlings.map((item) => toCoordKey(item.x, item.y)),
+    ...world.forests.map((item) => toCoordKey(item.x, item.y))
+  ]);
+  for (let count = 0; count < desired; count += 1) {
+    let position = null;
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const candidate = randomWorldPosition(world);
+      const key = toCoordKey(candidate.x, candidate.y);
+      if (occupied.has(key) || isBlockedTile(world, candidate.x, candidate.y)) {
+        continue;
+      }
+      position = candidate;
+      occupied.add(key);
+      break;
+    }
+    if (position) {
+      world.meadows.push(createMeadowNode(position.x, position.y));
     }
   }
 }
@@ -1036,6 +1223,7 @@ export function createInitialWorldState(options = {}) {
     resources: {
       food: 12,
       wood: 6,
+      fiber: 0,
       shelterCapacity: 0
     },
     milestones: [],
@@ -1045,9 +1233,11 @@ export function createInitialWorldState(options = {}) {
       height: GAME_RULES.world.height
     },
     forests: [],
+    meadows: [],
     shelters: [],
     storages: [],
     pendingForestRegrowth: [],
+    pendingMeadowRegrowth: [],
     extinction: {
       ended: false,
       cause: null,
@@ -1055,6 +1245,7 @@ export function createInitialWorldState(options = {}) {
     }
   };
   seedInitialForests(world);
+  seedInitialMeadows(world);
   return world;
 }
 
@@ -1113,6 +1304,54 @@ function updateVitals(
 }
 
 /**
+ * Returns mutable weather-protection state with backward compatibility defaults.
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {{gearCharges: number, foodBuffTicks: number}}
+ */
+function getWeatherProtectionState(civling) {
+  if (
+    !civling.weatherProtection ||
+    typeof civling.weatherProtection !== 'object'
+  ) {
+    civling.weatherProtection = { gearCharges: 0, foodBuffTicks: 0 };
+  }
+  if (typeof civling.weatherProtection.gearCharges !== 'number') {
+    civling.weatherProtection.gearCharges = 0;
+  }
+  if (typeof civling.weatherProtection.foodBuffTicks !== 'number') {
+    civling.weatherProtection.foodBuffTicks = 0;
+  }
+  return civling.weatherProtection;
+}
+
+/**
+ * Harvests fiber from the nearest reachable meadow and queues regrowth when depleted.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {number}
+ */
+function harvestFiberFromNearestMeadow(world, civling) {
+  const nearest = findNearestReachableMeadow(world, civling);
+  if (!nearest || nearest.meadow.fiberRemaining <= 0) {
+    return 0;
+  }
+  const meadow = nearest.meadow;
+  const harvestAmount = Math.min(
+    GAME_RULES.protection.fiberPerGather,
+    meadow.fiberRemaining
+  );
+  meadow.fiberRemaining -= harvestAmount;
+  civling.x = meadow.x;
+  civling.y = meadow.y;
+  if (meadow.fiberRemaining <= 0) {
+    world.meadows = world.meadows.filter((node) => node.id !== meadow.id);
+    queueMeadowRegrowth(world, { x: meadow.x, y: meadow.y });
+    addMemory(civling, `Depleted meadow at ${meadow.x},${meadow.y}.`);
+  }
+  return harvestAmount;
+}
+
+/**
  * Finds a dropoff structure by task metadata.
  * @param {import('../shared/types.js').WorldState} world
  * @param {Object<string, unknown>|null} taskMeta
@@ -1130,10 +1369,14 @@ function resolveDropoffByTaskMeta(world, taskMeta) {
     typeof modernDropoff.kind === 'string'
   ) {
     if (modernDropoff.kind === 'storage') {
-      return world.storages.find((site) => site.id === modernDropoff.id) ?? null;
+      return (
+        world.storages.find((site) => site.id === modernDropoff.id) ?? null
+      );
     }
     if (modernDropoff.kind === 'shelter') {
-      return world.shelters.find((site) => site.id === modernDropoff.id) ?? null;
+      return (
+        world.shelters.find((site) => site.id === modernDropoff.id) ?? null
+      );
     }
   }
 
@@ -1237,6 +1480,20 @@ export function applyAction(world, civling, action, taskMeta = null) {
     addMemory(civling, 'Gathered food.');
   }
 
+  if (action === ACTIONS.GATHER_FIBER) {
+    const gathered = harvestFiberFromNearestMeadow(world, civling);
+    if (gathered <= 0) {
+      addMemory(civling, 'Could not gather fiber (no reachable meadow).');
+    } else {
+      world.resources.fiber += gathered;
+      addMemory(civling, `Gathered ${gathered} fiber from nearby meadow.`);
+    }
+    updateVitals(civling, {
+      hungerDelta: values.hungerDelta,
+      energyDelta: -values.energyCost
+    });
+  }
+
   if (action === ACTIONS.GATHER_WOOD) {
     if (isGatherTaskMeta(taskMeta)) {
       if (taskMeta.failed) {
@@ -1246,7 +1503,10 @@ export function applyAction(world, civling, action, taskMeta = null) {
         typeof taskMeta.yield === 'object' &&
         typeof taskMeta.yield.amount === 'number'
       ) {
-        addMemory(civling, `Completed wood run (${taskMeta.yield.amount} planned).`);
+        addMemory(
+          civling,
+          `Completed wood run (${taskMeta.yield.amount} planned).`
+        );
       } else {
         addMemory(civling, 'Completed wood run.');
       }
@@ -1349,6 +1609,49 @@ export function applyAction(world, civling, action, taskMeta = null) {
     });
   }
 
+  if (action === ACTIONS.CRAFT_CLOTHES) {
+    const fiberCost = GAME_RULES.protection.fiberCostPerClothes;
+    const woodCost = GAME_RULES.protection.woodCostPerClothes;
+    if (
+      world.resources.fiber >= fiberCost &&
+      world.resources.wood >= woodCost
+    ) {
+      world.resources.fiber -= fiberCost;
+      world.resources.wood -= woodCost;
+      const protection = getWeatherProtectionState(civling);
+      protection.gearCharges += GAME_RULES.protection.gearChargesPerCraft;
+      addMemory(civling, 'Crafted protective clothes for harsh weather.');
+    } else {
+      addMemory(civling, 'Could not craft clothes (missing fiber or wood).');
+    }
+    updateVitals(civling, {
+      hungerDelta: values.hungerDelta,
+      energyDelta: -values.energyCost
+    });
+  }
+
+  if (action === ACTIONS.PREPARE_WARM_MEAL) {
+    const foodCost = GAME_RULES.protection.warmMealFoodCost;
+    if (world.resources.food >= foodCost) {
+      world.resources.food -= foodCost;
+      const protection = getWeatherProtectionState(civling);
+      protection.foodBuffTicks = Math.max(
+        protection.foodBuffTicks,
+        GAME_RULES.protection.warmMealBuffTicks
+      );
+      addMemory(
+        civling,
+        'Prepared a warm meal and felt more weather resistant.'
+      );
+    } else {
+      addMemory(civling, 'Could not prepare warm meal (no food).');
+    }
+    updateVitals(civling, {
+      hungerDelta: values.hungerDelta,
+      energyDelta: -values.energyCost
+    });
+  }
+
   if (action === ACTIONS.BUILD_STORAGE) {
     const storageWoodCost = GAME_RULES.storage.woodCostPerUnit;
     if (world.resources.wood >= storageWoodCost) {
@@ -1423,12 +1726,16 @@ export function applyAction(world, civling, action, taskMeta = null) {
   }
 
   if (action === ACTIONS.REPRODUCE) {
-    civling.reproduceIntentTick = world.tick;
+    if (isInsideShelter(civling, world)) {
+      civling.reproduceIntentTick = world.tick;
+      addMemory(civling, 'Attempted to reproduce in shelter.');
+    } else {
+      addMemory(civling, 'Could not reproduce outside shelter.');
+    }
     updateVitals(civling, {
       hungerDelta: values.hungerDelta,
       energyDelta: -values.energyCost
     });
-    addMemory(civling, 'Attempted to reproduce.');
   }
 
   markDeadIfNeeded(civling);
@@ -1447,17 +1754,39 @@ function postTickWorldEffects(world) {
   for (const civling of alive) {
     const wasYoung = isYoungCivling(civling);
     const exposed = isExposedToWeather(civling, world);
+    const sheltered = !exposed;
+    const protection = getWeatherProtectionState(civling);
+    const hasProtection =
+      protection.foodBuffTicks > 0 || protection.gearCharges > 0;
     civling.age += 1 / 12;
     civling.hunger = clamp(civling.hunger + 3, 0, 100);
 
     if (world.environment.weather === 'snowy') {
       civling.hunger = clamp(civling.hunger + 1, 0, 100);
       if (exposed) {
-        civling.health = clamp(civling.health - 30, 0, 100);
-        civling.energy = clamp(civling.energy - 12, 0, 100);
+        const snowHealthLoss = Math.max(
+          0,
+          GAME_RULES.weather.snowyExposedHealthLossPerTick -
+            (hasProtection
+              ? GAME_RULES.protection.snowyDamageReductionWithProtection
+              : 0)
+        );
+        civling.health = clamp(civling.health - snowHealthLoss, 0, 100);
+        civling.energy = clamp(
+          civling.energy - GAME_RULES.weather.snowyExposedEnergyLossPerTick,
+          0,
+          100
+        );
         addMemory(civling, 'Suffered severe snow exposure without shelter.');
         if (civling.energy <= 25 || civling.hunger >= 80) {
-          civling.health = clamp(civling.health - 20, 0, 100);
+          const criticalLoss = Math.max(
+            0,
+            GAME_RULES.weather.snowyCriticalExtraHealthLoss -
+              (hasProtection
+                ? GAME_RULES.protection.snowyDamageReductionWithProtection
+                : 0)
+          );
+          civling.health = clamp(civling.health - criticalLoss, 0, 100);
         }
       }
     }
@@ -1465,11 +1794,38 @@ function postTickWorldEffects(world) {
       world.time.phase === 'night' &&
       world.environment.nightTemperature === 'cold'
     ) {
-      civling.energy = clamp(civling.energy - (exposed ? 8 : 2), 0, 100);
       if (exposed) {
-        civling.health = clamp(civling.health - 10, 0, 100);
+        civling.energy = clamp(
+          civling.energy - GAME_RULES.weather.coldNightExposedEnergyLossPerTick,
+          0,
+          100
+        );
+      } else {
+        civling.energy = clamp(
+          civling.energy -
+            GAME_RULES.weather.coldNightShelteredEnergyLossPerTick,
+          0,
+          100
+        );
+      }
+      if (exposed) {
+        const coldNightHealthLoss = Math.max(
+          0,
+          GAME_RULES.weather.coldNightExposedHealthLossPerTick -
+            (hasProtection
+              ? GAME_RULES.protection.coldNightDamageReductionWithProtection
+              : 0)
+        );
+        civling.health = clamp(civling.health - coldNightHealthLoss, 0, 100);
         addMemory(civling, 'Took cold-night damage while exposed outside.');
       }
+    }
+
+    if (exposed && isHarshExposureRisk(world) && protection.gearCharges > 0) {
+      protection.gearCharges = Math.max(0, protection.gearCharges - 1);
+    }
+    if (protection.foodBuffTicks > 0) {
+      protection.foodBuffTicks = Math.max(0, protection.foodBuffTicks - 1);
     }
 
     if (wasYoung && aliveAdults.length === 0) {
@@ -1488,7 +1844,6 @@ function postTickWorldEffects(world) {
       civling.health = clamp(civling.health - 8, 0, 100);
     }
 
-    const sheltered = !isExposedToWeather(civling, world);
     if (
       hasMilestone(world, MILESTONES.FIRE) &&
       world.time.phase === 'night' &&
@@ -1617,10 +1972,17 @@ export async function runTick(world, decideAction, options = {}) {
   if (world.extinction.ended) {
     return world;
   }
+  world.meadows = world.meadows ?? [];
+  world.pendingMeadowRegrowth = world.pendingMeadowRegrowth ?? [];
+  world.resources.fiber = world.resources.fiber ?? 0;
+  for (const civling of world.civlings) {
+    getWeatherProtectionState(civling);
+  }
 
   world.tick += 1;
   advanceWorldTime(world);
   applyForestRegrowth(world);
+  applyMeadowRegrowth(world);
 
   for (const civling of getAliveCivlings(world)) {
     civling.foodEatenLastTick = 0;

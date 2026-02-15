@@ -4,6 +4,7 @@ const statusEl = document.getElementById('status');
 const metricsEl = document.getElementById('metricsList');
 const runHistoryEl = document.getElementById('runHistory');
 const thoughtLogEl = document.getElementById('thoughtLog');
+const diagnosticsLogEl = document.getElementById('diagnosticsLog');
 const llmExchangeLogEl = document.getElementById('llmExchangeLog');
 const actionChartEl = document.getElementById('actionChart');
 const civlingStatsEl = document.getElementById('civlingStats');
@@ -38,6 +39,7 @@ scene.add(light);
 
 const civlingMeshes = new Map();
 const forestMeshes = new Map();
+const meadowMeshes = new Map();
 const shelterMeshes = new Map();
 const storageMeshes = new Map();
 const civlingMotionCache = new Map();
@@ -58,10 +60,13 @@ const CIVLING_COLORS = Object.freeze({
 });
 
 const SHELTER_COLOR = 0x8b5a2b;
+const FOREST_COLOR = 0x2f9e44;
+const MEADOW_COLOR = 0xd6b85a;
 const ENTITY_SCALE = Object.freeze({
   civlingRadius: 0.34,
   shelterSize: 0.78,
   treeRadius: 1.02,
+  meadowRadius: 0.72,
   storageSize: 0.9
 });
 
@@ -374,7 +379,9 @@ function setMetrics(world, provider, shelterCapacityPerUnit = 2) {
     `Alive: ${alive}/${world.civlings.length}`,
     `Food: ${world.resources.food}`,
     `Wood: ${world.resources.wood}`,
+    `Fiber: ${world.resources.fiber ?? 0}`,
     `Forests: ${world.forests?.length ?? 0}`,
+    `Meadows: ${world.meadows?.length ?? 0}`,
     `Storages: ${world.storages?.length ?? 0}`,
     `Shelter wood slots: ${(world.shelters ?? []).reduce((sum, item) => sum + item.woodStored, 0)}/${(world.shelters ?? []).reduce((sum, item) => sum + item.woodCapacity, 0)}`,
     `Storage wood slots: ${(world.storages ?? []).reduce((sum, item) => sum + item.woodStored, 0)}/${(world.storages ?? []).reduce((sum, item) => sum + item.woodCapacity, 0)}`,
@@ -431,6 +438,20 @@ function setLlmExchangeLog(llmExchangeLog) {
         <div class="llm-label">Response</div>
         <pre class="llm-block">${entry.response}</pre>
       </li>`;
+    })
+    .join('');
+}
+
+function setDiagnosticsLog(diagnosticsLog) {
+  if (!diagnosticsLog.length) {
+    diagnosticsLogEl.innerHTML = '<li>No diagnostics yet.</li>';
+    return;
+  }
+
+  diagnosticsLogEl.innerHTML = diagnosticsLog
+    .map((entry) => {
+      const deltas = `HP ${entry.healthDelta}, EN ${entry.energyDelta}, HU ${entry.hungerDelta}`;
+      return `<li>[t${entry.tick}] ${entry.eventType} | ${entry.civlingName}<br/>${entry.summary}<br/>Action: ${entry.action} (${entry.reason}) | ${entry.weather}/${entry.phase}<br/>${deltas}<br/>Memory: ${entry.memory}</li>`;
     })
     .join('');
 }
@@ -698,6 +719,7 @@ function updateMovementDebug(world, nowMs) {
 
 function upsertStaticEntities(world) {
   const forests = world.forests ?? [];
+  const meadows = world.meadows ?? [];
   const shelters = world.shelters ?? [];
   const storages = world.storages ?? [];
 
@@ -715,12 +737,34 @@ function upsertStaticEntities(world) {
     if (!mesh) {
       mesh = new THREE.Mesh(
         new THREE.CircleGeometry(ENTITY_SCALE.treeRadius, 20),
-        new THREE.MeshBasicMaterial({ color: 0x2f9e44 })
+        new THREE.MeshBasicMaterial({ color: FOREST_COLOR })
       );
       forestMeshes.set(forest.id, mesh);
       scene.add(mesh);
     }
     mesh.position.set(forest.x, forest.y, -0.02);
+  }
+
+  const activeMeadowIds = new Set(meadows.map((item) => item.id));
+  for (const [id, mesh] of meadowMeshes.entries()) {
+    if (!activeMeadowIds.has(id)) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      meadowMeshes.delete(id);
+    }
+  }
+  for (const meadow of meadows) {
+    let mesh = meadowMeshes.get(meadow.id);
+    if (!mesh) {
+      mesh = new THREE.Mesh(
+        new THREE.CircleGeometry(ENTITY_SCALE.meadowRadius, 18),
+        new THREE.MeshBasicMaterial({ color: MEADOW_COLOR })
+      );
+      meadowMeshes.set(meadow.id, mesh);
+      scene.add(mesh);
+    }
+    mesh.position.set(meadow.x, meadow.y, -0.025);
   }
 
   const activeShelterIds = new Set(shelters.map((item) => item.id));
@@ -792,6 +836,7 @@ function onState(
   shelterCapacityPerUnit,
   runHistory,
   thoughtLog,
+  diagnosticsLog,
   llmExchangeLog,
   error
 ) {
@@ -802,6 +847,7 @@ function onState(
   setMetrics(world, provider, shelterCapacityPerUnit);
   setRunHistory(runHistory);
   setThoughtLog(thoughtLog);
+  setDiagnosticsLog(diagnosticsLog);
   setLlmExchangeLog(llmExchangeLog);
   setActionChart(world.civlings, thoughtLog, world.runId);
   setCivlingStats(world.civlings, thoughtLog);
@@ -838,6 +884,7 @@ async function applyDesiredCivlingCount() {
     payload.shelterCapacityPerUnit,
     payload.runHistory,
     payload.thoughtLog,
+    payload.diagnosticsLog,
     payload.llmExchangeLog,
     payload.error
   );
@@ -885,6 +932,7 @@ function initControls() {
         payload.shelterCapacityPerUnit,
         payload.runHistory,
         payload.thoughtLog,
+        payload.diagnosticsLog,
         payload.llmExchangeLog,
         payload.error
       );
@@ -942,6 +990,7 @@ async function bootstrap() {
       shelterCapacityPerUnit,
       runHistory,
       thoughtLog,
+      diagnosticsLog,
       llmExchangeLog,
       error
     }) =>
@@ -951,6 +1000,7 @@ async function bootstrap() {
         shelterCapacityPerUnit,
         runHistory,
         thoughtLog,
+        diagnosticsLog,
         llmExchangeLog,
         error
       )
@@ -966,6 +1016,7 @@ async function bootstrap() {
     initial.shelterCapacityPerUnit,
     initial.runHistory,
     initial.thoughtLog,
+    initial.diagnosticsLog,
     initial.llmExchangeLog,
     initial.error
   );

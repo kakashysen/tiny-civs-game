@@ -28,6 +28,12 @@
  */
 
 /**
+ * @typedef {Object} WeatherProtection
+ * @property {number} gearCharges
+ * @property {number} foodBuffTicks
+ */
+
+/**
  * @typedef {'travel_to_source'|'work_at_source'|'travel_to_dropoff'|'deposit_output'|'done'} GatherTaskPhase
  */
 
@@ -84,6 +90,7 @@
  * @property {number|null} reproduceIntentTick
  * @property {CivlingTask|null} currentTask
  * @property {CivlingPersonality} personality
+ * @property {WeatherProtection} weatherProtection
  * @property {number} x
  * @property {number} y
  */
@@ -92,6 +99,7 @@
  * @typedef {Object} Resources
  * @property {number} food
  * @property {number} wood
+ * @property {number} fiber
  * @property {number} shelterCapacity
  */
 /**
@@ -106,6 +114,14 @@
  * @property {number} x
  * @property {number} y
  * @property {number} woodRemaining
+ */
+
+/**
+ * @typedef {Object} MeadowNode
+ * @property {string} id
+ * @property {number} x
+ * @property {number} y
+ * @property {number} fiberRemaining
  */
 
 /**
@@ -128,6 +144,13 @@
 
 /**
  * @typedef {Object} PendingForestRegrowth
+ * @property {number} readyAtTick
+ * @property {number} [x]
+ * @property {number} [y]
+ */
+
+/**
+ * @typedef {Object} PendingMeadowRegrowth
  * @property {number} readyAtTick
  * @property {number} [x]
  * @property {number} [y]
@@ -173,9 +196,11 @@
  * @property {Civling[]} civlings
  * @property {WorldMap} map
  * @property {ForestNode[]} forests
+ * @property {MeadowNode[]} meadows
  * @property {ShelterSite[]} shelters
  * @property {StorageSite[]} storages
  * @property {PendingForestRegrowth[]} pendingForestRegrowth
+ * @property {PendingMeadowRegrowth[]} pendingMeadowRegrowth
  * @property {ExtinctionMetadata} extinction
  */
 

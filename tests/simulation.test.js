@@ -119,7 +119,10 @@ describe('simulation engine', () => {
     world.civlings[0].x = 0;
     world.civlings[0].y = 0;
 
-    await runTick(world, () => ({ action: ACTIONS.GATHER_WOOD, reason: 'test' }));
+    await runTick(world, () => ({
+      action: ACTIONS.GATHER_WOOD,
+      reason: 'test'
+    }));
 
     const task = world.civlings[0].currentTask;
     expect(task?.action).toBe(ACTIONS.GATHER_WOOD);
@@ -164,7 +167,10 @@ describe('simulation engine', () => {
     world.civlings[0].x = 0;
     world.civlings[0].y = 0;
 
-    await runTick(world, () => ({ action: ACTIONS.GATHER_WOOD, reason: 'test' }));
+    await runTick(world, () => ({
+      action: ACTIONS.GATHER_WOOD,
+      reason: 'test'
+    }));
     expect(world.civlings[0].currentTask?.meta?.phase).toBe('travel_to_source');
     expect([world.civlings[0].x, world.civlings[0].y]).toEqual([0, 0]);
 
@@ -178,11 +184,15 @@ describe('simulation engine', () => {
 
     await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
     expect([world.civlings[0].x, world.civlings[0].y]).toEqual([2, 0]);
-    expect(world.civlings[0].currentTask?.meta?.phase).toBe('travel_to_dropoff');
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe(
+      'travel_to_dropoff'
+    );
 
     await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
     expect([world.civlings[0].x, world.civlings[0].y]).toEqual([1, 0]);
-    expect(world.civlings[0].currentTask?.meta?.phase).toBe('travel_to_dropoff');
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe(
+      'travel_to_dropoff'
+    );
 
     await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
     expect([world.civlings[0].x, world.civlings[0].y]).toEqual([0, 0]);
@@ -204,7 +214,10 @@ describe('simulation engine', () => {
     world.civlings[0].x = 0;
     world.civlings[0].y = 0;
 
-    await runTick(world, () => ({ action: ACTIONS.GATHER_WOOD, reason: 'test' }));
+    await runTick(world, () => ({
+      action: ACTIONS.GATHER_WOOD,
+      reason: 'test'
+    }));
     await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
     await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
     expect(world.forests[0].woodRemaining).toBe(10);
@@ -309,6 +322,11 @@ describe('simulation engine', () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.milestones.push(MILESTONES.FIRE);
     world.resources.shelterCapacity = 1;
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 4 }
+    ];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
     world.environment.weather = 'cold';
     world.environment.nightTemperature = 'cold';
     world.time.phase = 'night';
@@ -365,7 +383,7 @@ describe('simulation engine', () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.environment.weather = 'snowy';
     world.resources.shelterCapacity = 0;
-    world.civlings[0].health = 25;
+    world.civlings[0].health = 10;
     world.civlings[0].currentTask = {
       action: ACTIONS.EXPLORE,
       totalMinutes: 30,
@@ -382,6 +400,11 @@ describe('simulation engine', () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.environment.weather = 'snowy';
     world.resources.shelterCapacity = 1;
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 4 }
+    ];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
     world.civlings[0].health = 35;
     world.civlings[0].currentTask = {
       action: ACTIONS.REST,
@@ -492,6 +515,13 @@ describe('simulation engine', () => {
   it('creates a newborn only when adult partners complete reproduce tasks with shelter capacity', async () => {
     const world = createInitialWorldState({ civlingCount: 2 });
     world.resources.shelterCapacity = 3;
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 8 }
+    ];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+    world.civlings[1].x = 0;
+    world.civlings[1].y = 0;
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.1);
 
     try {
@@ -557,6 +587,13 @@ describe('simulation engine', () => {
   it('tracks reproduction attempts when no baby is conceived', async () => {
     const world = createInitialWorldState({ civlingCount: 2 });
     world.resources.shelterCapacity = 3;
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 8 }
+    ];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+    world.civlings[1].x = 0;
+    world.civlings[1].y = 0;
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99);
 
     try {
@@ -570,5 +607,60 @@ describe('simulation engine', () => {
     expect(world.civlings[1].reproductionAttempts).toBe(2);
     expect(world.civlings[0].babiesBorn).toBe(0);
     expect(world.civlings[1].babiesBorn).toBe(0);
+  });
+
+  it('seeds meadows and gathers fiber from them', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.meadows = [{ id: 'meadow-1', x: 1, y: 0, fiberRemaining: 2 }];
+    world.resources.fiber = 0;
+
+    await runTick(world, () => ({
+      action: ACTIONS.GATHER_FIBER,
+      reason: 'test'
+    }));
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.resources.fiber).toBeGreaterThan(0);
+    expect(world.meadows).toHaveLength(0);
+    expect(world.pendingMeadowRegrowth.length).toBeGreaterThan(0);
+  });
+
+  it('requires shelter tile for reproduction attempts', async () => {
+    const world = createInitialWorldState({ civlingCount: 2 });
+    world.resources.shelterCapacity = 3;
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 8 }
+    ];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+    world.civlings[1].x = 2;
+    world.civlings[1].y = 0;
+
+    await runTicks(world, ACTIONS.REPRODUCE, 4);
+
+    expect(world.civlings[0].reproductionAttempts).toBe(0);
+    expect(world.civlings[1].reproductionAttempts).toBe(0);
+  });
+
+  it('crafts clothes and applies weather protection charges', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.fiber = GAME_RULES.protection.fiberCostPerClothes;
+    world.resources.wood = GAME_RULES.protection.woodCostPerClothes;
+
+    await runTick(world, () => ({
+      action: ACTIONS.CRAFT_CLOTHES,
+      reason: 'test'
+    }));
+    await runUntilTaskComplete(world);
+    expect(world.civlings[0].weatherProtection.gearCharges).toBeGreaterThan(0);
+
+    world.environment.weather = 'snowy';
+    world.time.phase = 'day';
+    world.shelters = [];
+    const beforeCharges = world.civlings[0].weatherProtection.gearCharges;
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.civlings[0].weatherProtection.gearCharges).toBeLessThan(
+      beforeCharges
+    );
   });
 });

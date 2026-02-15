@@ -269,6 +269,42 @@ describe('LocalApiProvider decideAction', () => {
     expect(action.source).toBe('local_api_adjusted');
   });
 
+  it('prefers warm meal protection when snowy exposure risk and no shelter wood', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"explore","reason":"searching around"}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.environment.weather = 'snowy';
+    world.resources.shelterCapacity = 0;
+    world.resources.wood = 0;
+    world.resources.food = 2;
+
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).toBe(ACTIONS.PREPARE_WARM_MEAL);
+    expect(action.source).toBe('local_api_adjusted');
+  });
+
   it('falls back to rest on persistent failure', async () => {
     vi.stubGlobal(
       'fetch',
