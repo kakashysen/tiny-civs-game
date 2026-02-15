@@ -109,6 +109,121 @@ describe('simulation engine', () => {
     expect(world.forests[0].woodRemaining).toBeLessThan(4);
   });
 
+  it('creates gather wood tasks with the generic phase metadata contract', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.forests = [{ id: 'forest-1', x: 2, y: 0, woodRemaining: 12 }];
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 12 }
+    ];
+    world.storages = [];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+
+    await runTick(world, () => ({ action: ACTIONS.GATHER_WOOD, reason: 'test' }));
+
+    const task = world.civlings[0].currentTask;
+    expect(task?.action).toBe(ACTIONS.GATHER_WOOD);
+    expect(task?.totalMinutes).toBe(150);
+    expect(task?.meta?.phase).toBe('travel_to_source');
+    expect(task?.meta?.source).toEqual({
+      id: 'forest-1',
+      kind: 'forest',
+      x: 2,
+      y: 0
+    });
+    expect(task?.meta?.dropoff).toEqual({
+      id: 'shelter-1',
+      kind: 'shelter',
+      x: 0,
+      y: 0
+    });
+    expect(task?.meta?.paths?.toSource).toEqual([
+      { x: 1, y: 0 },
+      { x: 2, y: 0 }
+    ]);
+    expect(task?.meta?.paths?.toDropoff).toEqual([
+      { x: 1, y: 0 },
+      { x: 0, y: 0 }
+    ]);
+    expect(task?.meta?.workMinutesRemaining).toBe(30);
+    expect(task?.meta?.yield).toEqual({
+      resource: 'wood',
+      amount: 2,
+      carried: 0
+    });
+  });
+
+  it('progresses gather wood phases deterministically without teleporting', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.wood = 0;
+    world.forests = [{ id: 'forest-1', x: 2, y: 0, woodRemaining: 12 }];
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 12 }
+    ];
+    world.storages = [];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+
+    await runTick(world, () => ({ action: ACTIONS.GATHER_WOOD, reason: 'test' }));
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe('travel_to_source');
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([0, 0]);
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([1, 0]);
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe('travel_to_source');
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([2, 0]);
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe('work_at_source');
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([2, 0]);
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe('travel_to_dropoff');
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([1, 0]);
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe('travel_to_dropoff');
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([0, 0]);
+    expect(world.civlings[0].currentTask?.meta?.phase).toBe('deposit_output');
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.civlings[0].currentTask).toBeNull();
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([0, 0]);
+  });
+
+  it('applies gather wood harvest and deposit at correct phase boundaries', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.wood = 0;
+    world.forests = [{ id: 'forest-1', x: 2, y: 0, woodRemaining: 10 }];
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 12 }
+    ];
+    world.storages = [];
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+
+    await runTick(world, () => ({ action: ACTIONS.GATHER_WOOD, reason: 'test' }));
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.forests[0].woodRemaining).toBe(10);
+    expect(world.resources.wood).toBe(0);
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.forests[0].woodRemaining).toBe(8);
+    expect(world.resources.wood).toBe(0);
+    expect(world.civlings[0].currentTask?.meta?.yield?.carried).toBe(2);
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.resources.wood).toBe(0);
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.resources.wood).toBe(2);
+    expect(world.shelters[0].woodStored).toBe(2);
+  });
+
   it('builds a storage structure at a physical world location', async () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.resources.wood = 12;

@@ -100,19 +100,21 @@ function isBlockedTile(world, x, y) {
 }
 
 /**
- * Finds shortest path length between 2 tiles using BFS on Manhattan moves.
+ * Builds shortest walkable path between two tiles using BFS on Manhattan moves.
+ * Path excludes the start tile and includes the goal tile.
  * @param {import('../shared/types.js').WorldState} world
  * @param {{x: number, y: number}} start
  * @param {{x: number, y: number}} goal
- * @returns {number}
+ * @returns {import('../shared/types.js').Position[]|null}
  */
-function getPathDistance(world, start, goal) {
+function buildPath(world, start, goal) {
   if (start.x === goal.x && start.y === goal.y) {
-    return 0;
+    return [];
   }
 
-  const queue = [{ x: start.x, y: start.y, dist: 0 }];
+  const queue = [{ x: start.x, y: start.y }];
   const visited = new Set([toCoordKey(start.x, start.y)]);
+  const parentByCoord = new Map();
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -135,15 +137,27 @@ function getPathDistance(world, start, goal) {
       if (visited.has(key)) {
         continue;
       }
+      parentByCoord.set(key, current);
       if (nextX === goal.x && nextY === goal.y) {
-        return current.dist + 1;
+        const path = [];
+        let pointer = { x: nextX, y: nextY };
+        while (pointer.x !== start.x || pointer.y !== start.y) {
+          path.push({ x: pointer.x, y: pointer.y });
+          const previous = parentByCoord.get(toCoordKey(pointer.x, pointer.y));
+          if (!previous) {
+            return null;
+          }
+          pointer = previous;
+        }
+        path.reverse();
+        return path;
       }
       visited.add(key);
-      queue.push({ x: nextX, y: nextY, dist: current.dist + 1 });
+      queue.push({ x: nextX, y: nextY });
     }
   }
 
-  return Number.POSITIVE_INFINITY;
+  return null;
 }
 
 /**
@@ -453,7 +467,7 @@ function getActionDurationMinutes(action) {
  * Finds the nearest reachable forest with remaining wood.
  * @param {import('../shared/types.js').WorldState} world
  * @param {import('../shared/types.js').Civling} civling
- * @returns {{forest: import('../shared/types.js').ForestNode, distance: number}|null}
+ * @returns {{forest: import('../shared/types.js').ForestNode, path: import('../shared/types.js').Position[]}|null}
  */
 function findNearestReachableForest(world, civling) {
   let best = null;
@@ -461,12 +475,12 @@ function findNearestReachableForest(world, civling) {
     if (forest.woodRemaining <= 0) {
       continue;
     }
-    const distance = getPathDistance(world, civling, forest);
-    if (!Number.isFinite(distance)) {
+    const path = buildPath(world, civling, forest);
+    if (!path) {
       continue;
     }
-    if (!best || distance < best.distance) {
-      best = { forest, distance };
+    if (!best || path.length < best.path.length) {
+      best = { forest, path };
     }
   }
   return best;
@@ -476,7 +490,7 @@ function findNearestReachableForest(world, civling) {
  * Finds the best drop-off site for carrying wood.
  * @param {import('../shared/types.js').WorldState} world
  * @param {{x: number, y: number}} from
- * @returns {{site: import('../shared/types.js').StorageSite|import('../shared/types.js').ShelterSite, type: 'storage'|'shelter', distance: number}|null}
+ * @returns {{site: import('../shared/types.js').StorageSite|import('../shared/types.js').ShelterSite, type: 'storage'|'shelter', path: import('../shared/types.js').Position[]}|null}
  */
 function findNearestWoodDropoff(world, from) {
   const storagesWithSpace = world.storages.filter(
@@ -491,12 +505,12 @@ function findNearestWoodDropoff(world, from) {
       : sheltersWithSpace.map((site) => ({ site, type: 'shelter' }));
   let best = null;
   for (const candidate of candidates) {
-    const distance = getPathDistance(world, from, candidate.site);
-    if (!Number.isFinite(distance)) {
+    const path = buildPath(world, from, candidate.site);
+    if (!path) {
       continue;
     }
-    if (!best || distance < best.distance) {
-      best = { ...candidate, distance };
+    if (!best || path.length < best.path.length) {
+      best = { ...candidate, path };
     }
   }
   return best;
@@ -521,21 +535,283 @@ function getGatherWoodTaskPlan(world, civling) {
     TIME.MINUTES_PER_TICK,
     GAME_RULES.forests.harvestMinutes
   );
-  const walkMinutes = nearestForest.distance * TIME.MINUTES_PER_TICK;
-  const returnMinutes = dropoff ? dropoff.distance * TIME.MINUTES_PER_TICK : 0;
+  const walkMinutes = nearestForest.path.length * TIME.MINUTES_PER_TICK;
+  const returnMinutes = dropoff ? dropoff.path.length * TIME.MINUTES_PER_TICK : 0;
+  const initialPhase =
+    nearestForest.path.length > 0 ? 'travel_to_source' : 'work_at_source';
   return {
     duration: Math.max(
       TIME.MINUTES_PER_TICK,
       harvestMinutes + walkMinutes + returnMinutes
     ),
     meta: {
-      forestId: nearestForest.forest.id,
-      dropoffId: dropoff?.site.id ?? null,
-      dropoffType: dropoff?.type ?? null,
-      targetX: nearestForest.forest.x,
-      targetY: nearestForest.forest.y
+      phase: initialPhase,
+      source: {
+        id: nearestForest.forest.id,
+        kind: 'forest',
+        x: nearestForest.forest.x,
+        y: nearestForest.forest.y
+      },
+      dropoff: dropoff
+        ? {
+            id: dropoff.site.id,
+            kind: dropoff.type,
+            x: dropoff.site.x,
+            y: dropoff.site.y
+          }
+        : null,
+      paths: {
+        toSource: nearestForest.path,
+        toDropoff: dropoff?.path ?? []
+      },
+      pathProgress: {
+        toSource: 0,
+        toDropoff: 0
+      },
+      workMinutesRemaining: harvestMinutes,
+      yield: {
+        resource: 'wood',
+        amount: ACTION_VALUES[ACTIONS.GATHER_WOOD].wood,
+        carried: 0
+      },
+      totalTaskMinutes: walkMinutes + harvestMinutes + returnMinutes,
+      phases: {
+        travelToSourceMinutes: walkMinutes,
+        workMinutes: harvestMinutes,
+        travelToDropoffMinutes: returnMinutes
+      }
     }
   };
+}
+
+/**
+ * Returns true when task metadata follows the gather-task contract.
+ * @param {Object<string, unknown>|null|undefined} taskMeta
+ * @returns {boolean}
+ */
+function isGatherTaskMeta(taskMeta) {
+  return Boolean(
+    taskMeta &&
+      typeof taskMeta === 'object' &&
+      typeof taskMeta.phase === 'string' &&
+      taskMeta.paths &&
+      typeof taskMeta.paths === 'object' &&
+      taskMeta.yield &&
+      typeof taskMeta.yield === 'object'
+  );
+}
+
+/**
+ * Resolves a forest node from gather metadata.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {Object<string, unknown>} taskMeta
+ * @returns {import('../shared/types.js').ForestNode|null}
+ */
+function resolveGatherForest(world, taskMeta) {
+  const source = taskMeta.source;
+  if (!source || typeof source !== 'object' || typeof source.id !== 'string') {
+    return null;
+  }
+  return world.forests.find((node) => node.id === source.id) ?? null;
+}
+
+/**
+ * Applies gather harvest output when work phase completes.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {Object<string, unknown>} taskMeta
+ */
+function applyGatherHarvest(world, civling, taskMeta) {
+  if (taskMeta.failed) {
+    return;
+  }
+  const forest = resolveGatherForest(world, taskMeta);
+  const yieldInfo =
+    taskMeta.yield && typeof taskMeta.yield === 'object' ? taskMeta.yield : null;
+  const plannedAmount =
+    yieldInfo && typeof yieldInfo.amount === 'number' ? yieldInfo.amount : 0;
+
+  if (!forest || forest.woodRemaining <= 0) {
+    taskMeta.failed = true;
+    taskMeta.reason = 'forest_depleted_before_work';
+    taskMeta.phase = 'done';
+    return;
+  }
+
+  const harvested = Math.min(plannedAmount, forest.woodRemaining);
+  forest.woodRemaining -= harvested;
+  if (yieldInfo) {
+    yieldInfo.carried = harvested;
+  }
+
+  if (forest.woodRemaining <= 0) {
+    world.forests = world.forests.filter((node) => node.id !== forest.id);
+    queueForestRegrowth(world, { x: forest.x, y: forest.y });
+    addMemory(civling, `Depleted forest at ${forest.x},${forest.y}.`);
+  }
+}
+
+/**
+ * Applies gather deposit output at dropoff phase boundary.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {Object<string, unknown>} taskMeta
+ */
+function applyGatherDeposit(world, civling, taskMeta) {
+  const yieldInfo =
+    taskMeta.yield && typeof taskMeta.yield === 'object' ? taskMeta.yield : null;
+  const carried =
+    yieldInfo && typeof yieldInfo.carried === 'number' ? yieldInfo.carried : 0;
+  if (carried <= 0) {
+    return;
+  }
+
+  if (!taskMeta.dropoff) {
+    addMemory(civling, 'Harvested wood but no shelter/storage had room.');
+    if (yieldInfo) {
+      yieldInfo.carried = 0;
+    }
+    return;
+  }
+
+  const dropoffSite = resolveDropoffByTaskMeta(world, taskMeta);
+  if (!dropoffSite) {
+    addMemory(civling, 'Harvested wood but no shelter/storage had room.');
+    if (yieldInfo) {
+      yieldInfo.carried = 0;
+    }
+    return;
+  }
+
+  const freeCapacity = Math.max(0, dropoffSite.woodCapacity - dropoffSite.woodStored);
+  const storedAmount = Math.min(carried, freeCapacity);
+  if (storedAmount > 0) {
+    dropoffSite.woodStored += storedAmount;
+    world.resources.wood += storedAmount;
+    addMemory(
+      civling,
+      `Collected ${storedAmount} wood and stored it at ${dropoffSite.x},${dropoffSite.y}.`
+    );
+  } else {
+    addMemory(civling, 'All nearby shelter/storage wood slots were full.');
+  }
+  if (yieldInfo) {
+    yieldInfo.carried = 0;
+  }
+}
+
+/**
+ * Progresses gather-task phases using one tick of movement/work budget.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @param {Object<string, unknown>} taskMeta
+ * @returns {number}
+ */
+function progressGatherTask(world, civling, taskMeta) {
+  let minutesConsumed = 0;
+  let minutesBudget = TIME.MINUTES_PER_TICK;
+
+  while (minutesBudget > 0 && taskMeta.phase !== 'done') {
+    if (taskMeta.phase === 'travel_to_source') {
+      const paths = taskMeta.paths;
+      if (!taskMeta.pathProgress || typeof taskMeta.pathProgress !== 'object') {
+        taskMeta.pathProgress = { toSource: 0, toDropoff: 0 };
+      }
+      const progress = taskMeta.pathProgress;
+      const path = Array.isArray(paths?.toSource) ? paths.toSource : [];
+      const pathIndex =
+        progress && typeof progress.toSource === 'number' ? progress.toSource : 0;
+      if (pathIndex >= path.length) {
+        taskMeta.phase = 'work_at_source';
+        continue;
+      }
+      if (minutesBudget < TIME.MINUTES_PER_TICK) {
+        break;
+      }
+      const nextTile = path[pathIndex];
+      if (!nextTile) {
+        taskMeta.phase = 'work_at_source';
+        continue;
+      }
+      civling.x = nextTile.x;
+      civling.y = nextTile.y;
+      progress.toSource = pathIndex + 1;
+      minutesConsumed += TIME.MINUTES_PER_TICK;
+      minutesBudget -= TIME.MINUTES_PER_TICK;
+      if (progress.toSource >= path.length) {
+        taskMeta.phase = 'work_at_source';
+      }
+      continue;
+    }
+
+    if (taskMeta.phase === 'work_at_source') {
+      const workRemaining =
+        typeof taskMeta.workMinutesRemaining === 'number'
+          ? taskMeta.workMinutesRemaining
+          : 0;
+      if (workRemaining <= 0) {
+        applyGatherHarvest(world, civling, taskMeta);
+        if (taskMeta.phase === 'done') {
+          break;
+        }
+        taskMeta.phase = taskMeta.dropoff ? 'travel_to_dropoff' : 'deposit_output';
+        continue;
+      }
+      const workSlice = Math.min(workRemaining, minutesBudget);
+      taskMeta.workMinutesRemaining = workRemaining - workSlice;
+      minutesConsumed += workSlice;
+      minutesBudget -= workSlice;
+      if (taskMeta.workMinutesRemaining <= 0) {
+        applyGatherHarvest(world, civling, taskMeta);
+        if (taskMeta.phase === 'done') {
+          break;
+        }
+        taskMeta.phase = taskMeta.dropoff ? 'travel_to_dropoff' : 'deposit_output';
+      }
+      continue;
+    }
+
+    if (taskMeta.phase === 'travel_to_dropoff') {
+      const paths = taskMeta.paths;
+      if (!taskMeta.pathProgress || typeof taskMeta.pathProgress !== 'object') {
+        taskMeta.pathProgress = { toSource: 0, toDropoff: 0 };
+      }
+      const progress = taskMeta.pathProgress;
+      const path = Array.isArray(paths?.toDropoff) ? paths.toDropoff : [];
+      const pathIndex =
+        progress && typeof progress.toDropoff === 'number'
+          ? progress.toDropoff
+          : 0;
+      if (pathIndex >= path.length) {
+        taskMeta.phase = 'deposit_output';
+        continue;
+      }
+      if (minutesBudget < TIME.MINUTES_PER_TICK) {
+        break;
+      }
+      const nextTile = path[pathIndex];
+      if (!nextTile) {
+        taskMeta.phase = 'deposit_output';
+        continue;
+      }
+      civling.x = nextTile.x;
+      civling.y = nextTile.y;
+      progress.toDropoff = pathIndex + 1;
+      minutesConsumed += TIME.MINUTES_PER_TICK;
+      minutesBudget -= TIME.MINUTES_PER_TICK;
+      if (progress.toDropoff >= path.length) {
+        taskMeta.phase = 'deposit_output';
+      }
+      continue;
+    }
+
+    if (taskMeta.phase === 'deposit_output') {
+      applyGatherDeposit(world, civling, taskMeta);
+      taskMeta.phase = 'done';
+    }
+  }
+
+  return minutesConsumed;
 }
 
 /**
@@ -550,10 +826,17 @@ function startTask(world, civling, action, tick) {
     action === ACTIONS.GATHER_WOOD
       ? getGatherWoodTaskPlan(world, civling)
       : { duration: getActionDurationMinutes(action), meta: null };
+  const duration =
+    action === ACTIONS.GATHER_WOOD &&
+    plan.meta &&
+    typeof plan.meta === 'object' &&
+    typeof plan.meta.totalTaskMinutes === 'number'
+      ? Math.max(TIME.MINUTES_PER_TICK, plan.meta.totalTaskMinutes)
+      : plan.duration;
   civling.currentTask = {
     action,
-    totalMinutes: plan.duration,
-    remainingMinutes: plan.duration,
+    totalMinutes: duration,
+    remainingMinutes: duration,
     startedAtTick: tick,
     meta: plan.meta ?? undefined
   };
@@ -570,8 +853,23 @@ function progressTask(world, civling) {
     return { inProgress: false, completedAction: null };
   }
 
-  civling.currentTask.remainingMinutes -= TIME.MINUTES_PER_TICK;
+  let minutesSpent = TIME.MINUTES_PER_TICK;
+  if (
+    civling.currentTask.action === ACTIONS.GATHER_WOOD &&
+    isGatherTaskMeta(civling.currentTask.meta)
+  ) {
+    minutesSpent = progressGatherTask(world, civling, civling.currentTask.meta);
+  }
+  civling.currentTask.remainingMinutes -= minutesSpent;
+
   if (civling.currentTask.remainingMinutes > 0) {
+    return { inProgress: true, completedAction: null };
+  }
+  if (
+    civling.currentTask.action === ACTIONS.GATHER_WOOD &&
+    isGatherTaskMeta(civling.currentTask.meta) &&
+    civling.currentTask.meta.phase !== 'done'
+  ) {
     return { inProgress: true, completedAction: null };
   }
 
@@ -824,6 +1122,21 @@ function resolveDropoffByTaskMeta(world, taskMeta) {
   if (!taskMeta || typeof taskMeta !== 'object') {
     return null;
   }
+  const modernDropoff = taskMeta.dropoff;
+  if (
+    modernDropoff &&
+    typeof modernDropoff === 'object' &&
+    typeof modernDropoff.id === 'string' &&
+    typeof modernDropoff.kind === 'string'
+  ) {
+    if (modernDropoff.kind === 'storage') {
+      return world.storages.find((site) => site.id === modernDropoff.id) ?? null;
+    }
+    if (modernDropoff.kind === 'shelter') {
+      return world.shelters.find((site) => site.id === modernDropoff.id) ?? null;
+    }
+  }
+
   const dropoffId = taskMeta.dropoffId;
   const dropoffType = taskMeta.dropoffType;
   if (typeof dropoffId !== 'string' || typeof dropoffType !== 'string') {
@@ -925,7 +1238,23 @@ export function applyAction(world, civling, action, taskMeta = null) {
   }
 
   if (action === ACTIONS.GATHER_WOOD) {
-    if (taskMeta?.failed) {
+    if (isGatherTaskMeta(taskMeta)) {
+      if (taskMeta.failed) {
+        addMemory(civling, 'Could not gather wood (no reachable forest).');
+      } else if (
+        taskMeta.yield &&
+        typeof taskMeta.yield === 'object' &&
+        typeof taskMeta.yield.amount === 'number'
+      ) {
+        addMemory(civling, `Completed wood run (${taskMeta.yield.amount} planned).`);
+      } else {
+        addMemory(civling, 'Completed wood run.');
+      }
+      updateVitals(civling, {
+        hungerDelta: values.hungerDelta,
+        energyDelta: -values.energyCost
+      });
+    } else if (taskMeta?.failed) {
       addMemory(civling, 'Could not gather wood (no reachable forest).');
       updateVitals(civling, {
         hungerDelta: values.hungerDelta,

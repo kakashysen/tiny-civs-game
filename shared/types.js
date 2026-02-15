@@ -28,6 +28,41 @@
  */
 
 /**
+ * @typedef {'travel_to_source'|'work_at_source'|'travel_to_dropoff'|'deposit_output'|'done'} GatherTaskPhase
+ */
+
+/**
+ * @typedef {Object} GatherTaskEndpoint
+ * @property {string|null} id
+ * @property {string} kind
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * @typedef {Object} GatherTaskPaths
+ * @property {Position[]} toSource
+ * @property {Position[]} toDropoff
+ */
+
+/**
+ * @typedef {Object} GatherTaskYield
+ * @property {string} resource
+ * @property {number} amount
+ * @property {number} carried
+ */
+
+/**
+ * @typedef {Object} GatherTaskMetadata
+ * @property {GatherTaskPhase} phase
+ * @property {GatherTaskEndpoint} source
+ * @property {GatherTaskEndpoint|null} dropoff
+ * @property {GatherTaskPaths} paths
+ * @property {number} workMinutesRemaining
+ * @property {GatherTaskYield} yield
+ */
+
+/**
  * @typedef {Object} Civling
  * @property {string} id
  * @property {string} name
