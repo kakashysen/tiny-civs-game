@@ -295,6 +295,22 @@ button:hover {
   border: 1px solid #30404c;
 }
 
+.movement-debug {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #273643;
+  background: rgba(7, 12, 16, 0.82);
+  color: #bed4e6;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 .grid-label-row {
   position: absolute;
   top: 0;

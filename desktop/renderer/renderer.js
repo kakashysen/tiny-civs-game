@@ -17,6 +17,8 @@ const civlingCountInput = document.getElementById('civlingCountInput');
 const showGridCheckboxEl = document.getElementById('showGridCheckbox');
 const gridTopLabelsEl = document.getElementById('gridTopLabels');
 const gridLeftLabelsEl = document.getElementById('gridLeftLabels');
+const movementDebugEnabled =
+  new URLSearchParams(window.location.search).get('movementDebug') === '1';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(worldCanvasEl.clientWidth, worldCanvasEl.clientHeight);
@@ -38,11 +40,16 @@ const civlingMeshes = new Map();
 const forestMeshes = new Map();
 const shelterMeshes = new Map();
 const storageMeshes = new Map();
+const civlingMotionCache = new Map();
 let worldGridLines = null;
 let worldGridSignature = '';
 let showGrid = false;
 let latestWorld = null;
 let resizeRafId = null;
+let lastObservedTick = null;
+let lastObservedTickAtMs = null;
+let estimatedTickDurationMs = 900;
+let movementDebugEl = null;
 
 const CIVLING_COLORS = Object.freeze({
   male: 0x3b82f6,
@@ -57,6 +64,121 @@ const ENTITY_SCALE = Object.freeze({
   treeRadius: 1.02,
   storageSize: 0.9
 });
+
+const INTERPOLATION_BOUNDS_MS = Object.freeze({
+  min: 120,
+  max: 2000
+});
+
+/**
+ * Clamps a number between minimum and maximum bounds.
+ * @param {number} value
+ * @param {number} min
+ * @param {number} max
+ * @returns {number}
+ */
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Normalizes an observed tick interval into a safe interpolation duration.
+ * @param {number} intervalMs
+ * @returns {number}
+ */
+function normalizeTickDurationMs(intervalMs) {
+  if (!Number.isFinite(intervalMs)) {
+    return estimatedTickDurationMs;
+  }
+  return clamp(
+    intervalMs,
+    INTERPOLATION_BOUNDS_MS.min,
+    INTERPOLATION_BOUNDS_MS.max
+  );
+}
+
+/**
+ * Updates the estimated simulation tick duration based on observed tick arrivals.
+ * @param {number} tick
+ * @param {number} nowMs
+ */
+function updateEstimatedTickDuration(tick, nowMs) {
+  if (
+    lastObservedTick !== null &&
+    tick > lastObservedTick &&
+    lastObservedTickAtMs !== null
+  ) {
+    const observedDurationMs = normalizeTickDurationMs(
+      nowMs - lastObservedTickAtMs
+    );
+    estimatedTickDurationMs = Math.round(
+      estimatedTickDurationMs * 0.5 + observedDurationMs * 0.5
+    );
+  }
+  lastObservedTick = tick;
+  lastObservedTickAtMs = nowMs;
+}
+
+/**
+ * Returns the current visual position for a civling interpolation snapshot.
+ * @param {{fromX: number, fromY: number, toX: number, toY: number, startedAtMs: number, durationMs: number}} snapshot
+ * @param {number} nowMs
+ * @returns {{x: number, y: number}}
+ */
+function getInterpolatedPosition(snapshot, nowMs) {
+  const elapsedMs = nowMs - snapshot.startedAtMs;
+  const progress = clamp(elapsedMs / snapshot.durationMs, 0, 1);
+  return {
+    x: snapshot.fromX + (snapshot.toX - snapshot.fromX) * progress,
+    y: snapshot.fromY + (snapshot.toY - snapshot.fromY) * progress
+  };
+}
+
+/**
+ * Rebuilds civling interpolation snapshots for a new world tick.
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {number} nowMs
+ */
+function updateCivlingMotionCache(world, nowMs) {
+  const isFirstWorld = latestWorld === null;
+  const worldReset =
+    !isFirstWorld &&
+    (world.runId !== latestWorld.runId || world.tick < latestWorld.tick);
+  if (worldReset) {
+    civlingMotionCache.clear();
+  }
+
+  updateEstimatedTickDuration(world.tick, nowMs);
+  const activeIds = new Set(world.civlings.map((civling) => civling.id));
+  for (const id of civlingMotionCache.keys()) {
+    if (!activeIds.has(id)) {
+      civlingMotionCache.delete(id);
+    }
+  }
+
+  for (const civling of world.civlings) {
+    const existing = civlingMotionCache.get(civling.id);
+    if (!existing) {
+      civlingMotionCache.set(civling.id, {
+        fromX: civling.x,
+        fromY: civling.y,
+        toX: civling.x,
+        toY: civling.y,
+        startedAtMs: nowMs,
+        durationMs: estimatedTickDurationMs
+      });
+      continue;
+    }
+
+    const from = getInterpolatedPosition(existing, nowMs);
+    existing.fromX = from.x;
+    existing.fromY = from.y;
+    existing.toX = civling.x;
+    existing.toY = civling.y;
+    existing.startedAtMs = nowMs;
+    existing.durationMs = estimatedTickDurationMs;
+  }
+}
 
 function getWorldBounds(world) {
   const halfWidth = Math.floor((world.map?.width ?? 36) / 2);
@@ -477,6 +599,7 @@ function upsertCivlings(world) {
       mesh.geometry.dispose();
       mesh.material.dispose();
       civlingMeshes.delete(id);
+      civlingMotionCache.delete(id);
     }
   }
 
@@ -495,7 +618,12 @@ function upsertCivlings(world) {
       scene.add(mesh);
     }
 
-    mesh.position.set(civling.x, civling.y, 0);
+    const snapshot = civlingMotionCache.get(civling.id);
+    if (snapshot) {
+      mesh.position.set(snapshot.toX, snapshot.toY, 0);
+    } else {
+      mesh.position.set(civling.x, civling.y, 0);
+    }
     if (civling.status === 'alive') {
       mesh.material.color.setHex(
         civling.gender === 'male' ? CIVLING_COLORS.male : CIVLING_COLORS.female
@@ -504,6 +632,68 @@ function upsertCivlings(world) {
       mesh.material.color.setHex(CIVLING_COLORS.dead);
     }
   }
+}
+
+/**
+ * Applies interpolation updates to civling mesh positions for the current frame.
+ * @param {number} nowMs
+ */
+function updateInterpolatedCivlingMeshes(nowMs) {
+  for (const [id, mesh] of civlingMeshes.entries()) {
+    const snapshot = civlingMotionCache.get(id);
+    if (!snapshot) {
+      continue;
+    }
+    const current = getInterpolatedPosition(snapshot, nowMs);
+    mesh.position.set(current.x, current.y, 0);
+  }
+}
+
+/**
+ * Lazily mounts renderer debug text for movement playback diagnostics.
+ * @returns {HTMLDivElement|null}
+ */
+function ensureMovementDebugElement() {
+  if (!movementDebugEnabled) {
+    return null;
+  }
+  if (movementDebugEl) {
+    return movementDebugEl;
+  }
+  const element = document.createElement('div');
+  element.className = 'movement-debug';
+  element.setAttribute('aria-live', 'polite');
+  worldCanvasWrapperEl.appendChild(element);
+  movementDebugEl = element;
+  return movementDebugEl;
+}
+
+/**
+ * Updates optional movement debugging text from current interpolation state.
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {number} nowMs
+ */
+function updateMovementDebug(world, nowMs) {
+  const debugEl = ensureMovementDebugElement();
+  if (!debugEl) {
+    return;
+  }
+  const lines = [`tick=${world.tick}`, `tickMs~${estimatedTickDurationMs}`];
+  const preview = world.civlings.slice(0, 3);
+  for (const civling of preview) {
+    const snapshot = civlingMotionCache.get(civling.id);
+    if (!snapshot) {
+      lines.push(`${civling.name}:(${civling.x},${civling.y})`);
+      continue;
+    }
+    const elapsedMs = nowMs - snapshot.startedAtMs;
+    const progress = clamp(elapsedMs / snapshot.durationMs, 0, 1);
+    const phase = String(civling.currentTask?.meta?.phase ?? '-');
+    lines.push(
+      `${civling.name}: p${progress.toFixed(2)} phase:${phase} task:${civling.currentTask?.action ?? '-'}`
+    );
+  }
+  debugEl.textContent = lines.join(' | ');
 }
 
 function upsertStaticEntities(world) {
@@ -587,6 +777,11 @@ function upsertStaticEntities(world) {
 }
 
 function renderFrame() {
+  const nowMs = performance.now();
+  updateInterpolatedCivlingMeshes(nowMs);
+  if (latestWorld) {
+    updateMovementDebug(latestWorld, nowMs);
+  }
   renderer.render(scene, camera);
   requestAnimationFrame(renderFrame);
 }
@@ -600,6 +795,9 @@ function onState(
   llmExchangeLog,
   error
 ) {
+  const nowMs = performance.now();
+  updateCivlingMotionCache(world, nowMs);
+  updateMovementDebug(world, nowMs);
   latestWorld = world;
   setMetrics(world, provider, shelterCapacityPerUnit);
   setRunHistory(runHistory);
