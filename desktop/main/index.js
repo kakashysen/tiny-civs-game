@@ -35,6 +35,9 @@ let thoughtLog = [];
 /** @type {Array<{runId: string, tick: number, civlingId: string, civlingName: string, prompt: string, response: string, status: string}>} */
 let llmExchangeLog = [];
 let desiredCivlingCount = DEFAULT_CIVLING_COUNT;
+let lastTickStartedAtMs = null;
+let lastTickCompletedAtMs = null;
+let lastTickDurationMs = null;
 
 let world = createInitialWorldState({ civlingCount: desiredCivlingCount });
 
@@ -62,8 +65,35 @@ function pushLlmExchange(entry) {
   llmExchangeLog = [entry, ...llmExchangeLog].slice(0, 150);
 }
 
-function sendTick(extra = {}) {
-  mainWindow?.webContents.send('sim:tick', {
+/**
+ * Builds additive movement metadata for renderer interpolation and debugging.
+ * @returns {{
+ *  tickIntervalMs: number,
+ *  lastTickStartedAtMs: number|null,
+ *  lastTickCompletedAtMs: number|null,
+ *  lastTickDurationMs: number|null,
+ *  publishedTick: number,
+ *  serverNowMs: number
+ * }}
+ */
+function buildMovementPayload() {
+  return {
+    tickIntervalMs: config.SIM_TICK_MS,
+    lastTickStartedAtMs,
+    lastTickCompletedAtMs,
+    lastTickDurationMs,
+    publishedTick: world.tick,
+    serverNowMs: Date.now()
+  };
+}
+
+/**
+ * Creates the stable IPC envelope for simulation state responses.
+ * @param {Record<string, unknown>} [extra]
+ * @returns {Record<string, unknown>}
+ */
+function buildSimPayload(extra = {}) {
+  return {
     world,
     provider: config.AI_PROVIDER,
     shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
@@ -71,8 +101,13 @@ function sendTick(extra = {}) {
     thoughtLog,
     llmExchangeLog,
     desiredCivlingCount,
+    movement: buildMovementPayload(),
     ...extra
-  });
+  };
+}
+
+function sendTick(extra = {}) {
+  mainWindow?.webContents.send('sim:tick', buildSimPayload(extra));
 }
 
 function archiveCurrentRun() {
@@ -94,6 +129,9 @@ function restartCivilization() {
     civlingCount: desiredCivlingCount,
     restartCount: nextRestartCount
   });
+  lastTickStartedAtMs = null;
+  lastTickCompletedAtMs = null;
+  lastTickDurationMs = null;
   sendTick();
 }
 
@@ -102,6 +140,8 @@ async function tickOnce() {
     return;
   }
   tickInFlight = true;
+  const tickStartedAt = Date.now();
+  lastTickStartedAtMs = tickStartedAt;
 
   try {
     world = await runTick(
@@ -161,6 +201,8 @@ async function tickOnce() {
       }
     }
   } finally {
+    lastTickCompletedAtMs = Date.now();
+    lastTickDurationMs = Math.max(0, lastTickCompletedAtMs - tickStartedAt);
     tickInFlight = false;
   }
 }
@@ -215,15 +257,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  ipcMain.handle('sim:get-state', () => ({
-    world,
-    provider: config.AI_PROVIDER,
-    shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
-    runHistory,
-    thoughtLog,
-    llmExchangeLog,
-    desiredCivlingCount
-  }));
+  ipcMain.handle('sim:get-state', () => buildSimPayload());
   ipcMain.handle('sim:set-civling-count', (_event, count) => {
     desiredCivlingCount = sanitizeCivlingCount(count);
     if (!ticker) {
@@ -233,16 +267,11 @@ app.whenReady().then(() => {
       });
       thoughtLog = [];
       llmExchangeLog = [];
+      lastTickStartedAtMs = null;
+      lastTickCompletedAtMs = null;
+      lastTickDurationMs = null;
     }
-    return {
-      world,
-      provider: config.AI_PROVIDER,
-      shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
-      runHistory,
-      thoughtLog,
-      llmExchangeLog,
-      desiredCivlingCount
-    };
+    return buildSimPayload();
   });
   ipcMain.handle('sim:start', () => {
     startSimulation();
@@ -266,15 +295,10 @@ app.whenReady().then(() => {
     runHistory = [];
     thoughtLog = [];
     llmExchangeLog = [];
-    return {
-      world,
-      provider: config.AI_PROVIDER,
-      shelterCapacityPerUnit: GAME_RULES.shelter.capacityPerUnit,
-      runHistory,
-      thoughtLog,
-      llmExchangeLog,
-      desiredCivlingCount
-    };
+    lastTickStartedAtMs = null;
+    lastTickCompletedAtMs = null;
+    lastTickDurationMs = null;
+    return buildSimPayload();
   });
 
   app.on('activate', () => {
