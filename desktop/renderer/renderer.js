@@ -345,6 +345,31 @@ function setStatus(message) {
   statusEl.textContent = `Status: ${message}`;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderLogTable(columns, rows, emptyMessage) {
+  if (!rows.length) {
+    return `<p class="log-empty">${escapeHtml(emptyMessage)}</p>`;
+  }
+
+  const head = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
+  const body = rows
+    .map(
+      (row) =>
+        `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`
+    )
+    .join('');
+
+  return `<div class="log-table-wrap"><table class="log-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
 function formatShelterUnits(shelterCapacity, shelterCapacityPerUnit) {
   if (shelterCapacityPerUnit <= 0) {
     return 'n/a';
@@ -397,31 +422,34 @@ function setMetrics(world, provider, shelterCapacityPerUnit = 2) {
 }
 
 function setRunHistory(runHistory) {
-  if (!runHistory.length) {
-    runHistoryEl.innerHTML = '<li>No completed runs yet.</li>';
-    return;
-  }
-
-  runHistoryEl.innerHTML = runHistory
-    .map(
-      (run) =>
-        `<li>#${run.restartCount} ${run.runId} | ticks ${run.ticks} | milestones ${run.milestones} | ${run.cause}</li>`
-    )
-    .join('');
+  const rows = runHistory.map((run) => [
+    `#${run.restartCount}`,
+    run.runId,
+    run.ticks,
+    run.milestones,
+    run.cause ?? 'n/a'
+  ]);
+  runHistoryEl.innerHTML = renderLogTable(
+    ['Restart', 'Run ID', 'Ticks', 'Milestones', 'Cause'],
+    rows,
+    'No completed runs yet.'
+  );
 }
 
 function setThoughtLog(thoughtLog) {
-  if (!thoughtLog.length) {
-    thoughtLogEl.innerHTML = '<li>No decisions yet.</li>';
-    return;
-  }
-
-  thoughtLogEl.innerHTML = thoughtLog
-    .map((entry) => {
-      const fallback = entry.fallback ? ' | fallback' : '';
-      return `<li>[t${entry.tick}] ${entry.civlingName} -> ${entry.action} (${entry.source})${fallback}<br/>Reason: ${entry.reason}</li>`;
-    })
-    .join('');
+  const rows = thoughtLog.map((entry) => [
+    `t${entry.tick}`,
+    entry.civlingName,
+    entry.action,
+    entry.source,
+    entry.fallback ? 'yes' : 'no',
+    entry.reason
+  ]);
+  thoughtLogEl.innerHTML = renderLogTable(
+    ['Tick', 'Civling', 'Action', 'Source', 'Fallback', 'Reason'],
+    rows,
+    'No decisions yet.'
+  );
 }
 
 function setLlmExchangeLog(llmExchangeLog) {
@@ -443,17 +471,32 @@ function setLlmExchangeLog(llmExchangeLog) {
 }
 
 function setDiagnosticsLog(diagnosticsLog) {
-  if (!diagnosticsLog.length) {
-    diagnosticsLogEl.innerHTML = '<li>No diagnostics yet.</li>';
-    return;
-  }
-
-  diagnosticsLogEl.innerHTML = diagnosticsLog
-    .map((entry) => {
-      const deltas = `HP ${entry.healthDelta}, EN ${entry.energyDelta}, HU ${entry.hungerDelta}`;
-      return `<li>[t${entry.tick}] ${entry.eventType} | ${entry.civlingName}<br/>${entry.summary}<br/>Action: ${entry.action} (${entry.reason}) | ${entry.weather}/${entry.phase}<br/>${deltas}<br/>Memory: ${entry.memory}</li>`;
-    })
-    .join('');
+  const rows = diagnosticsLog.map((entry) => [
+    `t${entry.tick}`,
+    entry.civlingName,
+    entry.eventType,
+    entry.summary,
+    entry.action,
+    entry.reason,
+    `${entry.weather}/${entry.phase}`,
+    `HP ${entry.healthDelta}, EN ${entry.energyDelta}, HU ${entry.hungerDelta}`,
+    entry.memory
+  ]);
+  diagnosticsLogEl.innerHTML = renderLogTable(
+    [
+      'Tick',
+      'Civling',
+      'Event',
+      'Summary',
+      'Action',
+      'Reason',
+      'Context',
+      'Deltas',
+      'Memory'
+    ],
+    rows,
+    'No diagnostics yet.'
+  );
 }
 
 function setActionChart(civlings, thoughtLog, runId) {

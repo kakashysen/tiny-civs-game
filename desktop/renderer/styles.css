@@ -142,32 +142,16 @@ button:hover {
 }
 
 #metricsList,
-#runHistory,
-#thoughtLog,
-#diagnosticsLog,
 #llmExchangeLog {
   margin: 0;
   padding-left: 18px;
 }
 
-#thoughtLog {
-  max-height: 240px;
-  overflow: auto;
-}
-
-#thoughtLog li {
-  margin-bottom: 6px;
-  line-height: 1.25;
-}
-
+#runHistory,
+#thoughtLog,
 #diagnosticsLog {
-  max-height: 220px;
-  overflow: auto;
-}
-
-#diagnosticsLog li {
-  margin-bottom: 8px;
-  line-height: 1.25;
+  margin: 0;
+  padding: 0;
 }
 
 #llmExchangeLog {
@@ -195,6 +179,49 @@ button:hover {
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.log-empty {
+  margin: 0;
+  color: #c1d3e0;
+}
+
+.log-table-wrap {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #2b3944;
+  border-radius: 8px;
+  background: #0f171d;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.log-table th,
+.log-table td {
+  border-bottom: 1px solid #273643;
+  padding: 7px 8px;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #15212b;
+  color: #9fc0d6;
+  font-weight: 600;
+}
+
+.log-table tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.015);
 }
 
 #civlingStats {
