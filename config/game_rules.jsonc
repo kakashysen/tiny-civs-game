@@ -10,6 +10,8 @@
     "eatHungerRelief": 25,
     // Energy gained when eating succeeds. Use integers >= 0.
     "eatEnergyGain": 8,
+    // Multiplier applied to hunger gain (positive hunger deltas only). 1.0 = unchanged, lower slows hunger growth.
+    "hungerRateMultiplier": 0.4,
     // Passive hunger increase every tick for each civling. Use numbers >= 0.
     "passiveHungerPerTick": 2,
     // Extra hunger increase in snowy weather. Use numbers >= 0.

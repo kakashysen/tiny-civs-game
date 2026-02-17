@@ -12,6 +12,7 @@ const DEFAULT_GAME_RULES = Object.freeze({
     eatHungerThreshold: 60,
     eatHungerRelief: 25,
     eatEnergyGain: 8,
+    hungerRateMultiplier: 1,
     passiveHungerPerTick: 2,
     snowyExtraHungerPerTick: 0
   },

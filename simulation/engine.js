@@ -22,6 +22,17 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function getHungerRateMultiplier() {
+  return Math.max(0, GAME_RULES.food.hungerRateMultiplier ?? 1);
+}
+
+function scaleHungerGain(hungerDelta) {
+  if (!Number.isFinite(hungerDelta) || hungerDelta <= 0) {
+    return hungerDelta;
+  }
+  return hungerDelta * getHungerRateMultiplier();
+}
+
 function randomId(prefix) {
   return `${prefix}-${Math.random().toString(16).slice(2, 8)}`;
 }
@@ -1450,7 +1461,7 @@ function updateVitals(
   civling,
   { hungerDelta = 0, energyDelta = 0, healthDelta = 0 }
 ) {
-  civling.hunger = clamp(civling.hunger + hungerDelta, 0, 100);
+  civling.hunger = clamp(civling.hunger + scaleHungerGain(hungerDelta), 0, 100);
   civling.energy = clamp(civling.energy + energyDelta, 0, 100);
   civling.health = clamp(civling.health + healthDelta, 0, 100);
 }
@@ -1916,14 +1927,14 @@ function postTickWorldEffects(world) {
     const ateThisTick = (civling.foodEatenLastTick ?? 0) > 0;
     civling.age += 1 / 12;
     civling.hunger = clamp(
-      civling.hunger + GAME_RULES.food.passiveHungerPerTick,
+      civling.hunger + scaleHungerGain(GAME_RULES.food.passiveHungerPerTick),
       0,
       100
     );
 
     if (world.environment.weather === 'snowy') {
       civling.hunger = clamp(
-        civling.hunger + GAME_RULES.food.snowyExtraHungerPerTick,
+        civling.hunger + scaleHungerGain(GAME_RULES.food.snowyExtraHungerPerTick),
         0,
         100
       );
