@@ -389,8 +389,89 @@ function isHarshExposureRisk(world) {
   );
 }
 
+/**
+ * @param {number} month
+ * @returns {'winter'|'spring'|'summer'|'autumn'}
+ */
+function getSeasonByMonth(month) {
+  if ([12, 1, 2].includes(month)) {
+    return 'winter';
+  }
+  if ([3, 4, 5].includes(month)) {
+    return 'spring';
+  }
+  if ([6, 7, 8].includes(month)) {
+    return 'summer';
+  }
+  return 'autumn';
+}
+
+/**
+ * Shares season-risk guidance with alive civlings.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {'initial'|'season_change'} context
+ */
+function addSeasonGuidanceMemory(world, context) {
+  const season = getSeasonByMonth(world.time.month);
+  const guidance =
+    season === 'winter'
+      ? 'Winter has harsh cold nights. Avoid staying outside after dusk without shelter or protection.'
+      : season === 'summer'
+        ? 'Summer is safer for outdoor tasks, but keep food and energy reserves stable.'
+        : `It is ${season}; balance outdoor work with shelter and food planning.`;
+  const prefix = context === 'initial' ? 'Seasonal guidance:' : 'New season:';
+  for (const civling of getAliveCivlings(world)) {
+    addMemory(civling, `${prefix} ${guidance}`);
+  }
+}
+
+/**
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {'normal'|'severe'|'critical'|'collapse'}
+ */
+function getStarvationStage(civling) {
+  if (civling.hunger >= GAME_RULES.survival.collapseHungerThreshold) {
+    return 'collapse';
+  }
+  if (civling.hunger >= GAME_RULES.survival.criticalHungerThreshold) {
+    return 'critical';
+  }
+  if (civling.hunger >= GAME_RULES.survival.severeHungerThreshold) {
+    return 'severe';
+  }
+  return 'normal';
+}
+
+/**
+ * @param {import('../shared/types.js').Civling} civling
+ */
+function ensureStarvationState(civling) {
+  if (!Number.isFinite(civling.starvationTicks)) {
+    civling.starvationTicks = 0;
+  }
+  if (
+    civling.lastStarvationStage !== 'normal' &&
+    civling.lastStarvationStage !== 'severe' &&
+    civling.lastStarvationStage !== 'critical' &&
+    civling.lastStarvationStage !== 'collapse'
+  ) {
+    civling.lastStarvationStage = 'normal';
+  }
+}
+
+/**
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {boolean}
+ */
+function shouldEmergencyInterrupt(civling) {
+  return (
+    civling.hunger >= GAME_RULES.survival.emergencyInterruptHungerThreshold ||
+    civling.energy <= GAME_RULES.survival.emergencyInterruptEnergyThreshold
+  );
+}
+
 function markDeadIfNeeded(civling) {
-  if (civling.health <= 0 || civling.hunger >= 100) {
+  if (civling.health <= 0) {
     civling.status = 'dead';
     civling.health = 0;
   }
@@ -456,6 +537,25 @@ export function getAllowedActionsForCivling(civling, world = null) {
 function resolveCivlingAction(world, civling, requestedAction) {
   if (requestedAction === ACTIONS.EAT) {
     return ACTIONS.EAT;
+  }
+  const isStarvationRiskyAction =
+    requestedAction === ACTIONS.GATHER_WOOD ||
+    requestedAction === ACTIONS.GATHER_FIBER ||
+    requestedAction === ACTIONS.EXPLORE ||
+    requestedAction === ACTIONS.BUILD_STORAGE;
+  if (
+    requestedAction &&
+    isStarvationRiskyAction &&
+    (civling.hunger >= GAME_RULES.survival.woodBlockHungerThreshold ||
+      civling.energy <= GAME_RULES.survival.woodBlockEnergyThreshold)
+  ) {
+    if (isYoungCivling(civling)) {
+      return ACTIONS.REST;
+    }
+    if (world.resources.food > 0) {
+      return ACTIONS.EAT;
+    }
+    return ACTIONS.GATHER_FOOD;
   }
   if (
     isHarshExposureRisk(world) &&
@@ -554,12 +654,17 @@ function advanceWorldTime(world) {
   while (world.time.minuteOfDay >= TIME.MINUTES_PER_DAY) {
     world.time.minuteOfDay -= TIME.MINUTES_PER_DAY;
     world.time.day += 1;
+    const previousSeason = getSeasonByMonth(world.time.month);
     if (world.time.day > TIME.DAYS_PER_MONTH) {
       world.time.day = 1;
       world.time.month += 1;
       if (world.time.month > TIME.MONTHS_PER_YEAR) {
         world.time.month = 1;
         world.time.year += 1;
+      }
+      const nextSeason = getSeasonByMonth(world.time.month);
+      if (nextSeason !== previousSeason) {
+        addSeasonGuidanceMemory(world, 'season_change');
       }
     }
     rollDailyEnvironment(world);
@@ -624,6 +729,46 @@ function findNearestReachableMeadow(world, civling) {
     }
   }
   return best;
+}
+
+/**
+ * Finds the nearest reachable shelter.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {{shelter: import('../shared/types.js').ShelterSite, path: import('../shared/types.js').Position[]}|null}
+ */
+function findNearestReachableShelter(world, civling) {
+  let best = null;
+  for (const shelter of world.shelters) {
+    const path = buildPath(world, civling, shelter);
+    if (!path) {
+      continue;
+    }
+    if (!best || path.length < best.path.length) {
+      best = { shelter, path };
+    }
+  }
+  return best;
+}
+
+/**
+ * Moves one tile toward nearest reachable shelter.
+ * @param {import('../shared/types.js').WorldState} world
+ * @param {import('../shared/types.js').Civling} civling
+ * @returns {boolean}
+ */
+function moveOneStepTowardNearestShelter(world, civling) {
+  const destination = findNearestReachableShelter(world, civling);
+  if (!destination || destination.path.length === 0) {
+    return false;
+  }
+  const nextTile = destination.path[0];
+  if (!nextTile) {
+    return false;
+  }
+  civling.x = nextTile.x;
+  civling.y = nextTile.y;
+  return true;
 }
 
 /**
@@ -1039,13 +1184,17 @@ function progressTask(world, civling) {
  * Starts an automatic eat task if hunger is high and food exists.
  * @param {import('../shared/types.js').WorldState} world
  * @param {import('../shared/types.js').Civling} civling
+ * @param {boolean} [forceEmergency=false]
  * @returns {boolean}
  */
-function maybeStartEatTask(world, civling) {
+function maybeStartEatTask(world, civling, forceEmergency = false) {
   if (civling.currentTask || world.resources.food <= 0) {
     return false;
   }
-  if (civling.hunger < GAME_RULES.food.eatHungerThreshold) {
+  const threshold = forceEmergency
+    ? GAME_RULES.survival.forceEatHungerThreshold
+    : GAME_RULES.food.eatHungerThreshold;
+  if (civling.hunger < threshold) {
     return false;
   }
   startTask(world, civling, ACTIONS.EAT, world.tick);
@@ -1113,6 +1262,8 @@ function createCivling({
     shelterBuildFailures: 0,
     babyChance,
     reproduceIntentTick: null,
+    starvationTicks: 0,
+    lastStarvationStage: 'normal',
     currentTask: null,
     personality,
     weatherProtection: {
@@ -1246,6 +1397,7 @@ export function createInitialWorldState(options = {}) {
   };
   seedInitialForests(world);
   seedInitialMeadows(world);
+  addSeasonGuidanceMemory(world, 'initial');
   return world;
 }
 
@@ -1446,7 +1598,8 @@ export function applyAction(world, civling, action, taskMeta = null) {
       world.resources.food -= 1;
       updateVitals(civling, {
         hungerDelta: values.hungerDelta,
-        energyDelta: values.energyGain
+        energyDelta: values.energyGain,
+        healthDelta: GAME_RULES.healing.eatRecoveryHeal
       });
       civling.foodEatenLastTick = (civling.foodEatenLastTick ?? 0) + 1;
       addMemory(civling, 'Finished eating shared food.');
@@ -1752,17 +1905,28 @@ function postTickWorldEffects(world) {
   );
 
   for (const civling of alive) {
+    ensureStarvationState(civling);
+    const previousStarvationStage = civling.lastStarvationStage;
     const wasYoung = isYoungCivling(civling);
     const exposed = isExposedToWeather(civling, world);
     const sheltered = !exposed;
     const protection = getWeatherProtectionState(civling);
     const hasProtection =
       protection.foodBuffTicks > 0 || protection.gearCharges > 0;
+    const ateThisTick = (civling.foodEatenLastTick ?? 0) > 0;
     civling.age += 1 / 12;
-    civling.hunger = clamp(civling.hunger + 3, 0, 100);
+    civling.hunger = clamp(
+      civling.hunger + GAME_RULES.food.passiveHungerPerTick,
+      0,
+      100
+    );
 
     if (world.environment.weather === 'snowy') {
-      civling.hunger = clamp(civling.hunger + 1, 0, 100);
+      civling.hunger = clamp(
+        civling.hunger + GAME_RULES.food.snowyExtraHungerPerTick,
+        0,
+        100
+      );
       if (exposed) {
         const snowHealthLoss = Math.max(
           0,
@@ -1840,8 +2004,65 @@ function postTickWorldEffects(world) {
       );
     }
 
-    if (civling.hunger >= 85) {
-      civling.health = clamp(civling.health - 8, 0, 100);
+    const starvationStage = getStarvationStage(civling);
+    if (starvationStage === 'severe') {
+      if (ateThisTick) {
+        civling.health = clamp(
+          civling.health + GAME_RULES.healing.starvationRecoveryHealWhenFed,
+          0,
+          100
+        );
+      } else {
+        civling.health = clamp(
+          civling.health - GAME_RULES.survival.severeHungerHealthLoss,
+          0,
+          100
+        );
+      }
+      civling.starvationTicks = 0;
+    }
+    if (starvationStage === 'critical') {
+      if (ateThisTick) {
+        civling.health = clamp(
+          civling.health + GAME_RULES.healing.starvationRecoveryHealWhenFed,
+          0,
+          100
+        );
+      } else {
+        civling.health = clamp(
+          civling.health - GAME_RULES.survival.criticalHungerHealthLoss,
+          0,
+          100
+        );
+        civling.energy = clamp(
+          civling.energy - GAME_RULES.survival.criticalHungerEnergyLoss,
+          0,
+          100
+        );
+      }
+      civling.starvationTicks = 0;
+    }
+    if (starvationStage === 'collapse') {
+      civling.starvationTicks += 1;
+      civling.health = clamp(
+        civling.health - GAME_RULES.survival.collapseHealthLossPerTick,
+        0,
+        100
+      );
+      addMemory(
+        civling,
+        `Starvation collapse tick ${civling.starvationTicks}. Immediate food needed.`
+      );
+    }
+    if (starvationStage === 'normal') {
+      civling.starvationTicks = 0;
+    }
+    civling.lastStarvationStage = starvationStage;
+    if (
+      previousStarvationStage === 'collapse' &&
+      starvationStage !== 'collapse'
+    ) {
+      addMemory(civling, 'Recovered from starvation collapse after eating.');
     }
 
     if (
@@ -1865,6 +2086,28 @@ function postTickWorldEffects(world) {
         civling.health + GAME_RULES.healing.agricultureNutritionHeal,
         0,
         100
+      );
+    }
+
+    if (
+      sheltered &&
+      civling.hunger <= GAME_RULES.healing.shelterRecoveryMaxHunger
+    ) {
+      civling.health = clamp(
+        civling.health + GAME_RULES.healing.shelterRecoveryHealPerTick,
+        0,
+        100
+      );
+    }
+
+    if (
+      starvationStage === 'collapse' &&
+      civling.starvationTicks >= GAME_RULES.survival.starvationDeathTicks
+    ) {
+      civling.health = 0;
+      addMemory(
+        civling,
+        `Died after ${civling.starvationTicks} starvation collapse ticks.`
       );
     }
 
@@ -1977,6 +2220,7 @@ export async function runTick(world, decideAction, options = {}) {
   world.resources.fiber = world.resources.fiber ?? 0;
   for (const civling of world.civlings) {
     getWeatherProtectionState(civling);
+    ensureStarvationState(civling);
   }
 
   world.tick += 1;
@@ -1987,6 +2231,74 @@ export async function runTick(world, decideAction, options = {}) {
   for (const civling of getAliveCivlings(world)) {
     civling.foodEatenLastTick = 0;
     civling.reproduceIntentTick = null;
+    const protection = getWeatherProtectionState(civling);
+    const hasProtection =
+      protection.foodBuffTicks > 0 || protection.gearCharges > 0;
+    const shouldReturnToShelterNow =
+      isHarshExposureRisk(world) &&
+      isExposedToWeather(civling, world) &&
+      !hasProtection &&
+      world.shelters.length > 0;
+
+    if (shouldReturnToShelterNow) {
+      civling.currentTask = null;
+      const moved = moveOneStepTowardNearestShelter(world, civling);
+      if (moved) {
+        addMemory(civling, 'Moved toward shelter to avoid harsh exposure.');
+      }
+      options.onDecision?.({
+        tick: world.tick,
+        civlingId: civling.id,
+        civlingName: civling.name,
+        action: ACTIONS.REST,
+        reason: moved
+          ? 'emergency_return_to_shelter'
+          : 'emergency_hold_outdoor_no_path',
+        fallback: false,
+        source: 'system',
+        llmTrace: null
+      });
+      continue;
+    }
+
+    if (
+      civling.currentTask &&
+      civling.currentTask.action !== ACTIONS.EAT &&
+      shouldEmergencyInterrupt(civling)
+    ) {
+      civling.currentTask = null;
+      if (maybeStartEatTask(world, civling, true)) {
+        options.onDecision?.({
+          tick: world.tick,
+          civlingId: civling.id,
+          civlingName: civling.name,
+          action: ACTIONS.EAT,
+          reason: 'emergency_task_interrupted_for_survival',
+          fallback: false,
+          source: 'system',
+          llmTrace: null
+        });
+      } else {
+        const emergencyAction = isYoungCivling(civling)
+          ? ACTIONS.REST
+          : ACTIONS.GATHER_FOOD;
+        startTask(world, civling, emergencyAction, world.tick);
+        options.onDecision?.({
+          tick: world.tick,
+          civlingId: civling.id,
+          civlingName: civling.name,
+          action: emergencyAction,
+          reason:
+            emergencyAction === ACTIONS.GATHER_FOOD
+              ? 'emergency_task_interrupted_for_food_search'
+              : 'emergency_task_interrupted_for_young_recovery',
+          fallback: false,
+          source: 'system',
+          llmTrace: null
+        });
+      }
+      continue;
+    }
 
     const taskProgress = progressTask(world, civling);
     if (taskProgress.inProgress) {

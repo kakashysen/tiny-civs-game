@@ -31,6 +31,16 @@ async function runUntilTaskComplete(world, maxTicks = 12) {
 }
 
 describe('simulation engine', () => {
+  it('adds seasonal guidance memory so civlings account for winter risk', () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+
+    expect(
+      world.civlings[0].memory.some((item) =>
+        item.includes('Winter has harsh cold nights')
+      )
+    ).toBe(true);
+  });
+
   it('increments tick on each run', async () => {
     const world = createInitialWorldState({ civlingCount: 2 });
 
@@ -291,6 +301,113 @@ describe('simulation engine', () => {
     expect(world.resources.food).toBe(2);
   });
 
+  it('applies starvation collapse as a grace period instead of instant death', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.environment.weather = 'warm';
+    world.environment.nightTemperature = 'warm';
+    world.time.phase = 'day';
+    world.resources.food = 0;
+    world.civlings[0].hunger = 100;
+    world.civlings[0].health = 100;
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.civlings[0].status).toBe('alive');
+    expect(world.civlings[0].starvationTicks).toBe(1);
+    expect(world.civlings[0].lastStarvationStage).toBe('collapse');
+    expect(world.civlings[0].health).toBeGreaterThan(0);
+  });
+
+  it('kills civlings only after starvation collapse grace ticks are exhausted', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.environment.weather = 'warm';
+    world.environment.nightTemperature = 'warm';
+    world.time.phase = 'day';
+    world.resources.food = 0;
+    world.civlings[0].hunger = 100;
+    world.civlings[0].health = 100;
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.civlings[0].status).toBe('alive');
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.civlings[0].status).toBe('dead');
+    expect(world.civlings[0].starvationTicks).toBeGreaterThanOrEqual(
+      GAME_RULES.survival.starvationDeathTicks
+    );
+  });
+
+  it('resets starvation collapse counter after successful eating', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.environment.weather = 'warm';
+    world.environment.nightTemperature = 'warm';
+    world.time.phase = 'day';
+    world.resources.food = 2;
+    world.civlings[0].hunger = 100;
+    world.civlings[0].health = 100;
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.civlings[0].starvationTicks).toBe(1);
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+    expect(world.civlings[0].status).toBe('alive');
+    expect(world.civlings[0].starvationTicks).toBe(0);
+    expect(world.civlings[0].lastStarvationStage).toBe('normal');
+  });
+
+  it('interrupts risky long tasks for emergency survival behavior', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.resources.food = 2;
+    world.civlings[0].hunger = 90;
+    world.civlings[0].currentTask = {
+      action: ACTIONS.GATHER_WOOD,
+      totalMinutes: 120,
+      remainingMinutes: 90,
+      startedAtTick: world.tick
+    };
+    const decisions = [];
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }), {
+      onDecision: (entry) => decisions.push(entry)
+    });
+
+    expect(decisions[0]?.action).toBe(ACTIONS.EAT);
+    expect(decisions[0]?.reason).toBe(
+      'emergency_task_interrupted_for_survival'
+    );
+    expect(world.civlings[0].currentTask?.action).toBe(ACTIONS.EAT);
+  });
+
+  it('blocks risky wood/explore actions when hunger or energy is unsafe', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.civlings[0].hunger = GAME_RULES.survival.woodBlockHungerThreshold;
+    world.resources.food = 1;
+    const decisions = [];
+
+    await runTick(
+      world,
+      () => ({ action: ACTIONS.GATHER_WOOD, reason: 'test-risky-wood' }),
+      {
+        onDecision: (entry) => decisions.push(entry)
+      }
+    );
+    expect(decisions[0]?.action).toBe(ACTIONS.EAT);
+
+    world.civlings[0].currentTask = null;
+    world.civlings[0].hunger = GAME_RULES.survival.woodBlockHungerThreshold;
+    world.resources.food = 0;
+    decisions.length = 0;
+
+    await runTick(
+      world,
+      () => ({ action: ACTIONS.EXPLORE, reason: 'test-risky-explore' }),
+      {
+        onDecision: (entry) => decisions.push(entry)
+      }
+    );
+    expect(decisions[0]?.action).toBe(ACTIONS.GATHER_FOOD);
+  });
+
   it('tracks shelter build attempts, successes, and failures separately', async () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.resources.wood = 4;
@@ -357,6 +474,42 @@ describe('simulation engine', () => {
     expect(world.civlings[0].health).toBeGreaterThan(60);
   });
 
+  it('restores health from eating even without agriculture milestone', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.civlings[0].health = 40;
+    world.civlings[0].hunger = 80;
+    world.resources.food = 2;
+    world.civlings[0].currentTask = {
+      action: ACTIONS.EAT,
+      totalMinutes: 10,
+      remainingMinutes: 10,
+      startedAtTick: world.tick
+    };
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.civlings[0].health).toBeGreaterThan(40);
+  });
+
+  it('restores health over time while sheltered and not starving', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 4 }
+    ];
+    world.resources.shelterCapacity = 1;
+    world.civlings[0].x = 0;
+    world.civlings[0].y = 0;
+    world.civlings[0].health = 50;
+    world.civlings[0].hunger = 30;
+    world.environment.weather = 'warm';
+    world.environment.nightTemperature = 'warm';
+    world.time.phase = 'day';
+
+    await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
+
+    expect(world.civlings[0].health).toBeGreaterThan(50);
+  });
+
   it('unlocks care action only after tools milestone', async () => {
     const world = createInitialWorldState({ civlingCount: 2 });
     world.civlings[1].health = 40;
@@ -379,7 +532,7 @@ describe('simulation engine', () => {
     expect(world.civlings[1].health).toBeGreaterThan(40);
   });
 
-  it('can kill exposed civlings during snowy weather', async () => {
+  it('can heavily injure exposed civlings during snowy weather', async () => {
     const world = createInitialWorldState({ civlingCount: 1 });
     world.environment.weather = 'snowy';
     world.resources.shelterCapacity = 0;
@@ -393,7 +546,8 @@ describe('simulation engine', () => {
 
     await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
 
-    expect(world.civlings[0].status).toBe('dead');
+    expect(world.civlings[0].status).toBe('alive');
+    expect(world.civlings[0].health).toBeLessThan(10);
   });
 
   it('keeps sheltered civlings alive during snowy weather', async () => {
@@ -416,6 +570,36 @@ describe('simulation engine', () => {
     await runTick(world, () => ({ action: ACTIONS.REST, reason: 'test' }));
 
     expect(world.civlings[0].status).toBe('alive');
+  });
+
+  it('returns exposed civlings toward shelter during harsh weather before other actions', async () => {
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.environment.weather = 'warm';
+    world.environment.nightTemperature = 'cold';
+    world.time.minuteOfDay = TIME.NIGHT_START_MINUTE;
+    world.time.phase = 'night';
+    world.shelters = [
+      { id: 'shelter-1', x: 0, y: 0, woodStored: 0, woodCapacity: 4 }
+    ];
+    world.civlings[0].x = 2;
+    world.civlings[0].y = 0;
+    world.civlings[0].health = 10;
+    world.civlings[0].energy = 0;
+    world.civlings[0].currentTask = {
+      action: ACTIONS.GATHER_FOOD,
+      totalMinutes: 30,
+      remainingMinutes: 20,
+      startedAtTick: world.tick
+    };
+    const decisions = [];
+
+    await runTick(world, () => ({ action: ACTIONS.EXPLORE, reason: 'test' }), {
+      onDecision: (entry) => decisions.push(entry)
+    });
+
+    expect(world.civlings[0].currentTask).toBeNull();
+    expect([world.civlings[0].x, world.civlings[0].y]).toEqual([1, 0]);
+    expect(decisions[0]?.reason).toBe('emergency_return_to_shelter');
   });
 
   it('marks extinction when everyone starts dead', async () => {

@@ -1,4 +1,4 @@
-import { ACTIONS, MILESTONES } from '../../shared/constants.js';
+import { ACTIONS, MILESTONES, TIME } from '../../shared/constants.js';
 import { GAME_RULES } from '../../shared/gameRules.js';
 import { pickPersonalityAction } from '../../shared/personalities.js';
 
@@ -28,6 +28,55 @@ function isInsideShelter(civling, world) {
 
 /**
  * @param {import('../../shared/types.js').Civling} civling
+ * @returns {'normal'|'severe'|'critical'|'collapse'}
+ */
+function getStarvationStage(civling) {
+  if (civling.hunger >= GAME_RULES.survival.collapseHungerThreshold) {
+    return 'collapse';
+  }
+  if (civling.hunger >= GAME_RULES.survival.criticalHungerThreshold) {
+    return 'critical';
+  }
+  if (civling.hunger >= GAME_RULES.survival.severeHungerThreshold) {
+    return 'severe';
+  }
+  return 'normal';
+}
+
+/**
+ * @param {string|undefined} action
+ * @returns {boolean}
+ */
+function isAdultSurvivalAction(action) {
+  return (
+    action === ACTIONS.GATHER_FOOD ||
+    action === ACTIONS.EAT ||
+    action === ACTIONS.REST ||
+    action === ACTIONS.PREPARE_WARM_MEAL ||
+    action === ACTIONS.CRAFT_CLOTHES ||
+    action === ACTIONS.BUILD_SHELTER
+  );
+}
+
+/**
+ * @param {number} month
+ * @returns {'winter'|'spring'|'summer'|'autumn'}
+ */
+function getSeasonByMonth(month) {
+  if ([12, 1, 2].includes(month)) {
+    return 'winter';
+  }
+  if ([3, 4, 5].includes(month)) {
+    return 'spring';
+  }
+  if ([6, 7, 8].includes(month)) {
+    return 'summer';
+  }
+  return 'autumn';
+}
+
+/**
+ * @param {import('../../shared/types.js').Civling} civling
  * @param {import('../../shared/types.js').WorldState} world
  * @returns {import('../../shared/types.js').ActionEnvelope}
  */
@@ -41,12 +90,22 @@ export function decideDeterministicAction(civling, world) {
   const shelterTarget = getShelterTarget(aliveCivlings.length);
   const reserveTarget = Math.max(
     GAME_RULES.food.reserveMinimum,
-    aliveCivlings.length * GAME_RULES.food.reservePerAliveCivling
+    Math.ceil(
+      aliveCivlings.length *
+        GAME_RULES.food.reservePerAliveCivling *
+        GAME_RULES.survival.foodReserveSafetyMultiplier
+    )
   );
   const isAdult = civling.age >= GAME_RULES.reproduction.minAdultAge;
+  const starvationStage = getStarvationStage(civling);
   const careUnlocked = world.milestones.includes(MILESTONES.TOOLS);
   const injuredExists = aliveCivlings.some((item) => item.health < 90);
   const hasStorage = (world.storages?.length ?? 0) > 0;
+  const adultsOnSurvival = aliveCivlings.some(
+    (item) =>
+      item.age >= GAME_RULES.reproduction.minAdultAge &&
+      isAdultSurvivalAction(item.currentTask?.action)
+  );
   const inShelter = isInsideShelter(civling, world);
   const hasProtection =
     (civling.weatherProtection?.foodBuffTicks ?? 0) > 0 ||
@@ -58,7 +117,59 @@ export function decideDeterministicAction(civling, world) {
     world.environment.nightTemperature === 'cold' &&
     !inShelter &&
     !hasProtection;
+  const vitalsTooWeakForRiskyWork =
+    civling.hunger >= GAME_RULES.survival.woodBlockHungerThreshold ||
+    civling.energy <= GAME_RULES.survival.woodBlockEnergyThreshold;
+  const season = getSeasonByMonth(world.time.month);
+  const isLateWinterDayWithColdNight =
+    season === 'winter' &&
+    world.time.phase === 'day' &&
+    world.environment.nightTemperature === 'cold' &&
+    world.time.minuteOfDay >=
+      TIME.NIGHT_START_MINUTE - 2 * TIME.MINUTES_PER_TICK;
 
+  if (isAdult && starvationStage === 'collapse' && world.resources.food > 0) {
+    return { action: ACTIONS.EAT, reason: 'starvation_collapse_emergency_eat' };
+  }
+  if (
+    isAdult &&
+    (starvationStage === 'critical' || starvationStage === 'collapse')
+  ) {
+    return {
+      action: ACTIONS.GATHER_FOOD,
+      reason: 'starvation_critical_food_priority'
+    };
+  }
+  if (
+    isAdult &&
+    civling.energy <= GAME_RULES.survival.emergencyInterruptEnergyThreshold
+  ) {
+    return { action: ACTIONS.REST, reason: 'emergency_low_energy_recovery' };
+  }
+  if (isAdult && isLateWinterDayWithColdNight && !inShelter && !hasProtection) {
+    if (world.resources.wood >= GAME_RULES.shelter.woodCostPerUnit) {
+      return {
+        action: ACTIONS.BUILD_SHELTER,
+        reason: 'winter_night_prep_build_shelter'
+      };
+    }
+    if (world.resources.food >= GAME_RULES.protection.warmMealFoodCost) {
+      return {
+        action: ACTIONS.PREPARE_WARM_MEAL,
+        reason: 'winter_night_prep_warm_meal'
+      };
+    }
+    if (
+      world.resources.fiber >= GAME_RULES.protection.fiberCostPerClothes &&
+      world.resources.wood >= GAME_RULES.protection.woodCostPerClothes
+    ) {
+      return {
+        action: ACTIONS.CRAFT_CLOTHES,
+        reason: 'winter_night_prep_craft_clothes'
+      };
+    }
+    return { action: ACTIONS.REST, reason: 'winter_night_prep_hold' };
+  }
   if (isAdult && (isSnowExposureRisk || isColdNightExposureRisk)) {
     if (world.resources.wood >= GAME_RULES.shelter.woodCostPerUnit) {
       return {
@@ -93,7 +204,8 @@ export function decideDeterministicAction(civling, world) {
     }
     if (
       hasProtection &&
-      world.resources.wood < GAME_RULES.shelter.woodCostPerUnit
+      world.resources.wood < GAME_RULES.shelter.woodCostPerUnit &&
+      !vitalsTooWeakForRiskyWork
     ) {
       return {
         action: ACTIONS.GATHER_WOOD,
@@ -104,6 +216,14 @@ export function decideDeterministicAction(civling, world) {
       action: ACTIONS.REST,
       reason: 'weather_exposure_hold_position'
     };
+  }
+
+  if (
+    isAdult &&
+    !adultsOnSurvival &&
+    world.resources.food <= reserveTarget + 1
+  ) {
+    return { action: ACTIONS.GATHER_FOOD, reason: 'adult_survival_guardrail' };
   }
 
   if (!isAdult) {
@@ -131,6 +251,13 @@ export function decideDeterministicAction(civling, world) {
 
   if (civling.energy <= 20) {
     return { action: ACTIONS.REST, reason: 'low_energy' };
+  }
+
+  if (vitalsTooWeakForRiskyWork) {
+    if (world.resources.food > 0 && civling.hunger >= 75) {
+      return { action: ACTIONS.EAT, reason: 'vitals_guardrail_emergency_eat' };
+    }
+    return { action: ACTIONS.GATHER_FOOD, reason: 'vitals_guardrail_food' };
   }
 
   if (civling.hunger >= 65 || world.resources.food <= reserveTarget) {

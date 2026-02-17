@@ -11,7 +11,9 @@ const DEFAULT_GAME_RULES = Object.freeze({
     reserveMinimum: 6,
     eatHungerThreshold: 60,
     eatHungerRelief: 25,
-    eatEnergyGain: 8
+    eatEnergyGain: 8,
+    passiveHungerPerTick: 2,
+    snowyExtraHungerPerTick: 0
   },
   shelter: {
     woodCostPerUnit: 4,
@@ -44,7 +46,21 @@ const DEFAULT_GAME_RULES = Object.freeze({
   survival: {
     starvationHungerRiskThreshold: 70,
     foodRiskThreshold: 0,
-    lowEnergyRiskThreshold: 20
+    lowEnergyRiskThreshold: 20,
+    severeHungerThreshold: 85,
+    criticalHungerThreshold: 95,
+    collapseHungerThreshold: 100,
+    severeHungerHealthLoss: 8,
+    criticalHungerHealthLoss: 12,
+    criticalHungerEnergyLoss: 6,
+    collapseHealthLossPerTick: 18,
+    starvationDeathTicks: 2,
+    emergencyInterruptHungerThreshold: 80,
+    emergencyInterruptEnergyThreshold: 10,
+    forceEatHungerThreshold: 85,
+    woodBlockHungerThreshold: 70,
+    woodBlockEnergyThreshold: 25,
+    foodReserveSafetyMultiplier: 1.35
   },
   reproduction: {
     enabled: true,
@@ -57,6 +73,10 @@ const DEFAULT_GAME_RULES = Object.freeze({
     fireNightShelterHeal: 2,
     agricultureNutritionHeal: 2,
     agricultureHungerThreshold: 40,
+    eatRecoveryHeal: 3,
+    starvationRecoveryHealWhenFed: 6,
+    shelterRecoveryHealPerTick: 2,
+    shelterRecoveryMaxHunger: 75,
     careMinEnergy: 30,
     careMaxHunger: 75
   },

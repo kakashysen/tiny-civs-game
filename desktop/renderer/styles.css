@@ -22,63 +22,77 @@ body {
   min-height: 100vh;
   padding: 20px;
   display: grid;
-  grid-template-columns: 300px 300px 1fr;
-  grid-template-areas:
-    'controls metrics world'
-    'history thoughts world'
-    'history diagnostics world'
-    'llm llm world'
-    'actions actions world'
-    'civlings civlings world';
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: 30px;
   gap: 16px;
 }
 
-.controls {
-  grid-area: controls;
-}
-
-.metrics {
-  grid-area: metrics;
-}
-
-.world {
-  grid-area: world;
-}
-
-.history {
-  grid-area: history;
-}
-
-.thoughts {
-  grid-area: thoughts;
-}
-
-.diagnostics {
-  grid-area: diagnostics;
-}
-
-.llm {
-  grid-area: llm;
-}
-
-.actions {
-  grid-area: actions;
-}
-
-.civlings {
-  grid-area: civlings;
-}
-
 .panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   background: linear-gradient(180deg, var(--surface), var(--surface-2));
   border: 1px solid #31414e;
   border-radius: 12px;
-  padding: 14px;
+  padding: 10px 12px 12px;
+}
+
+.panel-widget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  cursor: grab;
+  user-select: none;
+}
+
+.panel-widget-head:active {
+  cursor: grabbing;
+}
+
+.panel-widget-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.world .panel-widget-content {
+  overflow: hidden;
+}
+
+.widget-grip {
+  color: #7ca0b9;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.panel-resize-handle {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #6db0ff 0%, #6db0ff 45%, transparent 45%);
+  opacity: 0.6;
+  cursor: nwse-resize;
+}
+
+.panel-resize-handle:hover {
+  opacity: 1;
+}
+
+.panel-widget-active {
+  border-color: #5ea4ff;
+  box-shadow: 0 0 0 1px rgba(94, 164, 255, 0.45);
 }
 
 h1,
 h2 {
-  margin: 0 0 12px;
+  margin: 0;
 }
 
 .row {
@@ -155,7 +169,8 @@ button:hover {
 }
 
 #llmExchangeLog {
-  max-height: 220px;
+  max-height: none;
+  height: 100%;
   overflow: auto;
 }
 
@@ -187,7 +202,7 @@ button:hover {
 }
 
 .log-table-wrap {
-  max-height: 240px;
+  max-height: 100%;
   overflow: auto;
   border: 1px solid #2b3944;
   border-radius: 8px;
@@ -225,7 +240,8 @@ button:hover {
 }
 
 #civlingStats {
-  max-height: 260px;
+  max-height: none;
+  height: 100%;
   overflow: auto;
 }
 
@@ -236,7 +252,8 @@ button:hover {
 }
 
 #actionChart {
-  max-height: 280px;
+  max-height: none;
+  height: 100%;
   overflow: auto;
 }
 
@@ -327,7 +344,8 @@ button:hover {
 #worldCanvasWrapper {
   position: relative;
   width: 100%;
-  height: clamp(340px, 60vh, 680px);
+  height: 100%;
+  min-height: 240px;
 }
 
 #worldCanvas {
@@ -395,15 +413,21 @@ button:hover {
 @media (max-width: 1000px) {
   .layout {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      'controls'
-      'metrics'
-      'history'
-      'thoughts'
-      'llm'
-      'actions'
-      'civlings'
-      'world';
+    grid-auto-rows: auto;
+  }
+
+  .panel {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+
+  .panel-widget-head {
+    cursor: default;
+  }
+
+  .panel-resize-handle,
+  .widget-grip {
+    display: none;
   }
 
   #worldCanvas {

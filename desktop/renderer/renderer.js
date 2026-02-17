@@ -1,6 +1,7 @@
 import * as THREE from '../../node_modules/three/build/three.module.js';
 
 const statusEl = document.getElementById('status');
+const layoutEl = document.getElementById('dashboardLayout');
 const metricsEl = document.getElementById('metricsList');
 const runHistoryEl = document.getElementById('runHistory');
 const thoughtLogEl = document.getElementById('thoughtLog');
@@ -52,6 +53,34 @@ let lastObservedTick = null;
 let lastObservedTickAtMs = null;
 let estimatedTickDurationMs = 900;
 let movementDebugEl = null;
+let activeWidgetPointer = null;
+
+const LAYOUT_STORAGE_KEY = 'tiny-civs-layout-v1';
+const GRID_COLUMNS = 12;
+const GRID_ROW_HEIGHT_PX = 30;
+const GRID_GAP_PX = 16;
+const DEFAULT_WIDGET_LAYOUT = Object.freeze({
+  controls: { x: 1, y: 1, w: 3, h: 5 },
+  metrics: { x: 4, y: 1, w: 3, h: 5 },
+  world: { x: 7, y: 1, w: 6, h: 17 },
+  history: { x: 1, y: 6, w: 3, h: 6 },
+  thoughts: { x: 4, y: 6, w: 3, h: 6 },
+  diagnostics: { x: 4, y: 12, w: 3, h: 6 },
+  llm: { x: 1, y: 12, w: 6, h: 6 },
+  actions: { x: 1, y: 18, w: 6, h: 6 },
+  civlings: { x: 1, y: 24, w: 6, h: 8 }
+});
+const WIDGET_MIN_SIZE = Object.freeze({
+  controls: { w: 2, h: 4 },
+  metrics: { w: 2, h: 4 },
+  world: { w: 4, h: 10 },
+  history: { w: 2, h: 4 },
+  thoughts: { w: 2, h: 4 },
+  diagnostics: { w: 2, h: 4 },
+  llm: { w: 3, h: 4 },
+  actions: { w: 3, h: 4 },
+  civlings: { w: 3, h: 5 }
+});
 
 const CIVLING_COLORS = Object.freeze({
   male: 0x3b82f6,
@@ -339,6 +368,267 @@ function scheduleWorldResize() {
       resizeRafId = null;
     });
   });
+}
+
+function isSingleColumnLayout() {
+  return window.matchMedia('(max-width: 1000px)').matches;
+}
+
+function getWidgetPanels() {
+  return Array.from(layoutEl.querySelectorAll('.panel[data-widget]'));
+}
+
+function getWidgetById(widgetId) {
+  return layoutEl.querySelector(`.panel[data-widget="${widgetId}"]`);
+}
+
+function getCellWidthPx() {
+  const width = Math.max(1, layoutEl.clientWidth);
+  return (width - GRID_GAP_PX * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
+}
+
+function normalizeWidgetRect(widgetId, rect) {
+  const minSize = WIDGET_MIN_SIZE[widgetId] ?? { w: 2, h: 3 };
+  const width = Math.min(
+    GRID_COLUMNS,
+    Math.max(minSize.w, Math.round(rect.w || minSize.w))
+  );
+  const height = Math.max(minSize.h, Math.round(rect.h || minSize.h));
+  const x = Math.max(1, Math.min(GRID_COLUMNS - width + 1, Math.round(rect.x || 1)));
+  const y = Math.max(1, Math.round(rect.y || 1));
+  return { x, y, w: width, h: height };
+}
+
+function cloneLayoutState(layoutState) {
+  const clone = {};
+  for (const [widgetId, rect] of Object.entries(layoutState)) {
+    clone[widgetId] = { ...rect };
+  }
+  return clone;
+}
+
+function widgetsOverlap(a, b) {
+  return !(
+    a.x + a.w - 1 < b.x ||
+    b.x + b.w - 1 < a.x ||
+    a.y + a.h - 1 < b.y ||
+    b.y + b.h - 1 < a.y
+  );
+}
+
+function canMoveUp(rect, others) {
+  if (rect.y <= 1) {
+    return false;
+  }
+  const candidate = { ...rect, y: rect.y - 1 };
+  return !others.some((other) => widgetsOverlap(candidate, other));
+}
+
+function resolveLayoutCollisions(layoutState, prioritizedWidgetId = null) {
+  const widgetIds = getWidgetPanels().map((panel) => panel.dataset.widget);
+  const orderedIds = prioritizedWidgetId
+    ? [prioritizedWidgetId, ...widgetIds.filter((id) => id !== prioritizedWidgetId)]
+    : widgetIds;
+  const placed = [];
+  const placedById = {};
+
+  for (const widgetId of orderedIds) {
+    const fallback = DEFAULT_WIDGET_LAYOUT[widgetId] ?? { x: 1, y: 1, w: 3, h: 5 };
+    const rect = normalizeWidgetRect(widgetId, layoutState[widgetId] ?? fallback);
+    while (placed.some((other) => widgetsOverlap(rect, other))) {
+      rect.y += 1;
+    }
+    placed.push({ ...rect, widgetId });
+    placedById[widgetId] = rect;
+  }
+
+  const compacted = [...placed].sort((a, b) => a.y - b.y || a.x - b.x);
+  for (const widget of compacted) {
+    const others = compacted.filter((item) => item.widgetId !== widget.widgetId);
+    while (canMoveUp(widget, others)) {
+      widget.y -= 1;
+    }
+    placedById[widget.widgetId] = {
+      x: widget.x,
+      y: widget.y,
+      w: widget.w,
+      h: widget.h
+    };
+  }
+
+  return placedById;
+}
+
+function loadWidgetLayout() {
+  const defaults = cloneLayoutState(DEFAULT_WIDGET_LAYOUT);
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!raw) {
+      return resolveLayoutCollisions(defaults);
+    }
+    const parsed = JSON.parse(raw);
+    for (const widgetId of Object.keys(defaults)) {
+      if (!parsed?.[widgetId]) {
+        continue;
+      }
+      defaults[widgetId] = normalizeWidgetRect(widgetId, parsed[widgetId]);
+    }
+    return resolveLayoutCollisions(defaults);
+  } catch {
+    return resolveLayoutCollisions(defaults);
+  }
+}
+
+function saveWidgetLayout(layoutState) {
+  try {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layoutState));
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+function applyWidgetLayout(layoutState) {
+  for (const panel of getWidgetPanels()) {
+    const widgetId = panel.dataset.widget;
+    const rect =
+      layoutState[widgetId] ??
+      normalizeWidgetRect(widgetId, DEFAULT_WIDGET_LAYOUT[widgetId]);
+    panel.style.gridColumn = `${rect.x} / span ${rect.w}`;
+    panel.style.gridRow = `${rect.y} / span ${rect.h}`;
+  }
+  scheduleWorldResize();
+}
+
+function updateWidgetRect(widgetId, nextRect, prioritizedWidgetId = widgetId) {
+  const current = loadWidgetLayout();
+  current[widgetId] = normalizeWidgetRect(widgetId, nextRect);
+  const resolved = resolveLayoutCollisions(current, prioritizedWidgetId);
+  applyWidgetLayout(resolved);
+  saveWidgetLayout(resolved);
+}
+
+function onWidgetPointerMove(event) {
+  if (!activeWidgetPointer) {
+    return;
+  }
+  const panel = getWidgetById(activeWidgetPointer.widgetId);
+  if (!panel) {
+    return;
+  }
+  event.preventDefault();
+  const cellWidth = getCellWidthPx() + GRID_GAP_PX;
+  const rowHeight = GRID_ROW_HEIGHT_PX + GRID_GAP_PX;
+  const dx = event.clientX - activeWidgetPointer.startClientX;
+  const dy = event.clientY - activeWidgetPointer.startClientY;
+  const deltaColumns = Math.round(dx / cellWidth);
+  const deltaRows = Math.round(dy / rowHeight);
+  const origin = activeWidgetPointer.originRect;
+
+  if (activeWidgetPointer.mode === 'move') {
+    updateWidgetRect(activeWidgetPointer.widgetId, {
+      ...origin,
+      x: origin.x + deltaColumns,
+      y: origin.y + deltaRows
+    });
+    return;
+  }
+
+  updateWidgetRect(activeWidgetPointer.widgetId, {
+    ...origin,
+    w: origin.w + deltaColumns,
+    h: origin.h + deltaRows
+  });
+}
+
+function onWidgetPointerUp() {
+  if (!activeWidgetPointer) {
+    return;
+  }
+  const panel = getWidgetById(activeWidgetPointer.widgetId);
+  panel?.classList.remove('panel-widget-active');
+  document.removeEventListener('pointermove', onWidgetPointerMove);
+  document.removeEventListener('pointerup', onWidgetPointerUp);
+  document.removeEventListener('pointercancel', onWidgetPointerUp);
+  activeWidgetPointer = null;
+}
+
+function startWidgetPointer(event, widgetId, mode) {
+  if (isSingleColumnLayout()) {
+    return;
+  }
+  event.preventDefault();
+  const layoutState = loadWidgetLayout();
+  const originRect =
+    layoutState[widgetId] ??
+    normalizeWidgetRect(widgetId, DEFAULT_WIDGET_LAYOUT[widgetId]);
+  const panel = getWidgetById(widgetId);
+  if (!panel) {
+    return;
+  }
+  panel.classList.add('panel-widget-active');
+  activeWidgetPointer = {
+    widgetId,
+    mode,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    originRect
+  };
+  document.addEventListener('pointermove', onWidgetPointerMove);
+  document.addEventListener('pointerup', onWidgetPointerUp);
+  document.addEventListener('pointercancel', onWidgetPointerUp);
+}
+
+function initWidgetLayout() {
+  const widgetPanels = getWidgetPanels();
+  for (const panel of widgetPanels) {
+    if (panel.dataset.layoutReady === '1') {
+      continue;
+    }
+    panel.dataset.layoutReady = '1';
+    const heading = panel.querySelector('h1, h2');
+    if (!heading) {
+      continue;
+    }
+
+    const content = document.createElement('div');
+    content.className = 'panel-widget-content';
+    while (panel.firstChild) {
+      const child = panel.firstChild;
+      if (child === heading) {
+        panel.removeChild(child);
+        continue;
+      }
+      content.appendChild(child);
+    }
+
+    const head = document.createElement('div');
+    head.className = 'panel-widget-head';
+    head.appendChild(heading);
+    const grip = document.createElement('span');
+    grip.className = 'widget-grip';
+    grip.textContent = 'DRAG';
+    head.appendChild(grip);
+    panel.appendChild(head);
+    panel.appendChild(content);
+
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'panel-resize-handle';
+    resizeHandle.title = 'Resize widget';
+    panel.appendChild(resizeHandle);
+
+    const widgetId = panel.dataset.widget;
+    head.addEventListener('pointerdown', (event) => {
+      startWidgetPointer(event, widgetId, 'move');
+    });
+    resizeHandle.addEventListener('pointerdown', (event) => {
+      event.stopPropagation();
+      startWidgetPointer(event, widgetId, 'resize');
+    });
+  }
+
+  const resolvedLayout = resolveLayoutCollisions(loadWidgetLayout());
+  applyWidgetLayout(resolvedLayout);
+  saveWidgetLayout(resolvedLayout);
 }
 
 function setStatus(message) {
@@ -1023,6 +1313,7 @@ async function bootstrap() {
     return;
   }
 
+  initWidgetLayout();
   initControls();
   bindResize();
 

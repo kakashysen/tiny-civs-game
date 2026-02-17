@@ -7,8 +7,8 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="layout">
-      <section class="panel controls">
+    <main class="layout" id="dashboardLayout">
+      <section class="panel controls" data-widget="controls">
         <h1>Tiny Civs</h1>
         <div class="row">
           <button id="startBtn">Start</button>
@@ -33,12 +33,12 @@
         <div id="status">Status: idle</div>
       </section>
 
-      <section class="panel metrics">
+      <section class="panel metrics" data-widget="metrics">
         <h2>Metrics</h2>
         <ul id="metricsList"></ul>
       </section>
 
-      <section class="panel world">
+      <section class="panel world" data-widget="world">
         <h2>World</h2>
         <div id="worldCanvasWrapper">
           <div
@@ -55,32 +55,32 @@
         </div>
       </section>
 
-      <section class="panel history">
+      <section class="panel history" data-widget="history">
         <h2>Recent Runs</h2>
         <div id="runHistory"></div>
       </section>
 
-      <section class="panel thoughts">
+      <section class="panel thoughts" data-widget="thoughts">
         <h2>Civling Thought Log</h2>
         <div id="thoughtLog"></div>
       </section>
 
-      <section class="panel diagnostics">
+      <section class="panel diagnostics" data-widget="diagnostics">
         <h2>Diagnostics Log</h2>
         <div id="diagnosticsLog"></div>
       </section>
 
-      <section class="panel llm">
+      <section class="panel llm" data-widget="llm">
         <h2>LLM Exchange</h2>
         <ul id="llmExchangeLog"></ul>
       </section>
 
-      <section class="panel actions">
+      <section class="panel actions" data-widget="actions">
         <h2>Action Distribution</h2>
         <div id="actionChart"></div>
       </section>
 
-      <section class="panel civlings">
+      <section class="panel civlings" data-widget="civlings">
         <h2>Civling Stats</h2>
         <div id="civlingStats"></div>
       </section>

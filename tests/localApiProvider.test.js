@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ACTIONS, MILESTONES } from '../shared/constants.js';
+import { GAME_RULES } from '../shared/gameRules.js';
 import { createInitialWorldState } from '../simulation/engine.js';
 import {
   LocalApiProvider,
@@ -302,6 +303,43 @@ describe('LocalApiProvider decideAction', () => {
     const action = await provider.decideAction(world.civlings[0], world);
 
     expect(action.action).toBe(ACTIONS.PREPARE_WARM_MEAL);
+    expect(action.source).toBe('local_api_adjusted');
+  });
+
+  it('overrides late winter risky outdoor action before cold night', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"action":"explore","reason":"searching around"}'
+              }
+            }
+          ]
+        })
+      })
+    );
+
+    const provider = new LocalApiProvider({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'test',
+      timeoutMs: 200,
+      maxRetries: 0
+    });
+
+    const world = createInitialWorldState({ civlingCount: 1 });
+    world.time.month = 1;
+    world.time.phase = 'day';
+    world.time.minuteOfDay = 17 * 60;
+    world.environment.nightTemperature = 'cold';
+    world.resources.wood = GAME_RULES.shelter.woodCostPerUnit;
+
+    const action = await provider.decideAction(world.civlings[0], world);
+
+    expect(action.action).toBe(ACTIONS.BUILD_SHELTER);
     expect(action.source).toBe('local_api_adjusted');
   });
 

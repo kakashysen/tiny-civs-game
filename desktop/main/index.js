@@ -84,6 +84,8 @@ function snapshotCivlingVitals(state) {
         health: civling.health,
         energy: civling.energy,
         hunger: civling.hunger,
+        starvationTicks: civling.starvationTicks ?? 0,
+        lastStarvationStage: civling.lastStarvationStage ?? 'normal',
         memory: civling.memory[civling.memory.length - 1] ?? ''
       }
     ])
@@ -93,7 +95,7 @@ function snapshotCivlingVitals(state) {
 /**
  * Appends diagnostics entries from per-tick civling deltas.
  * @param {import('../../shared/types.js').WorldState} state
- * @param {Map<string, {status: string, health: number, energy: number, hunger: number, memory: string}>} beforeById
+ * @param {Map<string, {status: string, health: number, energy: number, hunger: number, starvationTicks: number, lastStarvationStage: string, memory: string}>} beforeById
  * @param {Map<string, {action: string, reason: string}>} decisionById
  */
 function collectTickDiagnostics(state, beforeById, decisionById) {
@@ -102,13 +104,28 @@ function collectTickDiagnostics(state, beforeById, decisionById) {
     if (!before) {
       continue;
     }
-    const healthDelta = Math.round((civling.health - before.health) * 100) / 100;
-    const energyDelta = Math.round((civling.energy - before.energy) * 100) / 100;
-    const hungerDelta = Math.round((civling.hunger - before.hunger) * 100) / 100;
+    const healthDelta =
+      Math.round((civling.health - before.health) * 100) / 100;
+    const energyDelta =
+      Math.round((civling.energy - before.energy) * 100) / 100;
+    const hungerDelta =
+      Math.round((civling.hunger - before.hunger) * 100) / 100;
     const decision = decisionById.get(civling.id);
     const action = decision?.action ?? civling.currentTask?.action ?? 'none';
-    const reason = decision?.reason ?? 'no_decision_recorded';
-    const latestMemory = civling.memory[civling.memory.length - 1] ?? before.memory;
+    const decisionReason = decision?.reason ?? 'no_decision_recorded';
+    let diagnosticReason = decisionReason;
+    const latestMemory =
+      civling.memory[civling.memory.length - 1] ?? before.memory;
+    const starvationStage = civling.lastStarvationStage ?? 'normal';
+    if (starvationStage === 'severe') {
+      diagnosticReason = 'starvation_severe';
+    }
+    if (starvationStage === 'critical') {
+      diagnosticReason = 'starvation_critical';
+    }
+    if (starvationStage === 'collapse') {
+      diagnosticReason = `starvation_collapse_tick_${civling.starvationTicks ?? 0}`;
+    }
 
     if (healthDelta < 0) {
       pushDiagnostic({
@@ -118,7 +135,7 @@ function collectTickDiagnostics(state, beforeById, decisionById) {
         civlingName: civling.name,
         eventType: 'health_loss',
         action,
-        reason,
+        reason: diagnosticReason,
         summary: `${civling.name} lost ${Math.abs(healthDelta)} health.`,
         healthDelta,
         energyDelta,
@@ -130,6 +147,10 @@ function collectTickDiagnostics(state, beforeById, decisionById) {
     }
 
     if (before.status !== 'dead' && civling.status === 'dead') {
+      const starvationDeath =
+        starvationStage === 'collapse' &&
+        (civling.starvationTicks ?? 0) >=
+          GAME_RULES.survival.starvationDeathTicks;
       pushDiagnostic({
         runId: state.runId,
         tick: state.tick,
@@ -137,8 +158,12 @@ function collectTickDiagnostics(state, beforeById, decisionById) {
         civlingName: civling.name,
         eventType: 'death',
         action,
-        reason,
-        summary: `${civling.name} died (health=${Math.round(civling.health)}, hunger=${Math.round(civling.hunger)}).`,
+        reason: starvationDeath
+          ? 'starvation_death_after_grace'
+          : diagnosticReason,
+        summary: starvationDeath
+          ? `${civling.name} died after starvation collapse grace period (hunger=${Math.round(civling.hunger)}).`
+          : `${civling.name} died (health=${Math.round(civling.health)}, hunger=${Math.round(civling.hunger)}).`,
         healthDelta,
         energyDelta,
         hungerDelta,
@@ -157,7 +182,7 @@ function collectTickDiagnostics(state, beforeById, decisionById) {
         civlingName: civling.name,
         eventType: 'hunger_spike',
         action,
-        reason,
+        reason: decisionReason,
         summary: `${civling.name} hunger spiked by ${hungerDelta}.`,
         healthDelta,
         energyDelta,
