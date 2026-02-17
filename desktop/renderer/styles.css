@@ -356,6 +356,67 @@ button:hover {
   border: 1px solid #30404c;
 }
 
+#civlingBubbleLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.civling-bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  min-width: 140px;
+  max-width: 240px;
+  border-radius: 10px;
+  border: 1px solid var(--bubble-accent, #304455);
+  background: var(--bubble-bg, rgba(11, 20, 26, 0.9));
+  color: #eaf4ff;
+  padding: 6px 8px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+  transform: translate(-50%, calc(-100% - 14px));
+}
+
+.civling-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid var(--bubble-accent, #304455);
+  border-bottom: 1px solid var(--bubble-accent, #304455);
+  background: var(--bubble-bg, rgba(11, 20, 26, 0.9));
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.civling-bubble-name,
+.civling-bubble-doing,
+.civling-bubble-planning {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.civling-bubble-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bubble-name, #f3f9ff);
+  letter-spacing: 0.02em;
+}
+
+.civling-bubble-doing {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #f0f7fd;
+}
+
+.civling-bubble-planning {
+  margin-top: 3px;
+  font-size: 10px;
+  color: #bcd0e0;
+}
+
 .movement-debug {
   position: absolute;
   left: 10px;
@@ -436,5 +497,19 @@ button:hover {
 
   #worldCanvasWrapper {
     height: clamp(280px, 48vh, 420px);
+  }
+
+  .civling-bubble {
+    min-width: 128px;
+    max-width: 190px;
+    padding: 5px 7px;
+  }
+
+  .civling-bubble-doing {
+    font-size: 10px;
+  }
+
+  .civling-bubble-planning {
+    font-size: 9px;
   }
 }

@@ -64,7 +64,7 @@ Exposed through `window.tinyCivs` in preload:
 ## 5) Simulation Model Notes
 - Tick/time constants live in `shared/constants.js` (`TIME.MINUTES_PER_TICK`, day/night boundaries, etc.).
 - Actions and values are centrally defined in `shared/constants.js` (`ACTIONS`, `ACTION_VALUES`, `ACTION_DURATION_MINUTES`).
-- Rules are loaded from `config/game_rules.json` merged with defaults in `shared/gameRules.js`.
+- Rules are loaded from `config/game_rules.jsonc` merged with defaults in `shared/gameRules.js`.
 - World supports physical coordinates with bounded map (`GAME_RULES.world.width/height`).
 - Pathing uses Manhattan BFS in `simulation/engine.js` and avoids blocked structures.
 - Forest wood is finite and regrows via pending regrowth queue.
@@ -128,7 +128,7 @@ Defined by `shared/config.js`:
   - `simulation/engine.js`
   - `tests/simulation.test.js`
 - Add/adjust game rule knobs:
-  - `config/game_rules.json`
+  - `config/game_rules.jsonc`
   - `shared/gameRules.js`
   - tests that assert resulting behavior
 - Modify AI behavior:
@@ -174,4 +174,3 @@ Respect module ownership:
 - desktop/renderer handles UI/render only
 Before finishing: run npm run lint, npm run test, npm run format.
 ```
-

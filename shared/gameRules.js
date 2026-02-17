@@ -122,11 +122,25 @@ function mergeRules(overrides = {}) {
   };
 }
 
+/**
+ * Parses JSONC content allowing // and /* *\/ style comments.
+ * @param {string} raw
+ * @returns {Record<string, unknown>}
+ */
+function parseJsonc(raw) {
+  const withoutBlockComments = raw.replace(/\/\*[\s\S]*?\*\//g, '');
+  const withoutLineComments = withoutBlockComments.replace(
+    /(^|[^:\\])\/\/.*$/gm,
+    '$1'
+  );
+  return JSON.parse(withoutLineComments);
+}
+
 export function loadGameRules() {
   try {
-    const path = join(__dirname, '../config/game_rules.json');
+    const path = join(__dirname, '../config/game_rules.jsonc');
     const raw = readFileSync(path, 'utf-8');
-    return mergeRules(JSON.parse(raw));
+    return mergeRules(parseJsonc(raw));
   } catch {
     return mergeRules();
   }

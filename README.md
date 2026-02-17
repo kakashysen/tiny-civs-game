@@ -53,7 +53,7 @@ Environment variables are read from `.env` (or process env). Key settings includ
 See:
 - `.env.example`
 - `shared/config.js`
-- `config/game_rules.json`
+- `config/game_rules.jsonc`
 
 ## Development Notes
 - Contributor workflow and coding standards: `AGENTS.md`
@@ -67,4 +67,3 @@ npm run lint
 npm run test
 npm run format
 ```
-

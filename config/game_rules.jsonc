@@ -1,0 +1,164 @@
+{
+  "food": {
+    // Food reserve target per alive civling. Use integers >= 0.
+    "reservePerAliveCivling": 4,
+    // Minimum global food reserve floor regardless of civling count. Use integers >= 0.
+    "reserveMinimum": 6,
+    // Hunger level at or above which civlings auto-prioritize eating. Typical range: 0-100.
+    "eatHungerThreshold": 60,
+    // Hunger reduction applied when eating succeeds. Use integers >= 0.
+    "eatHungerRelief": 25,
+    // Energy gained when eating succeeds. Use integers >= 0.
+    "eatEnergyGain": 8,
+    // Passive hunger increase every tick for each civling. Use numbers >= 0.
+    "passiveHungerPerTick": 2,
+    // Extra hunger increase in snowy weather. Use numbers >= 0.
+    "snowyExtraHungerPerTick": 0
+  },
+  "shelter": {
+    // Wood required to build one shelter unit. Use integers >= 1.
+    "woodCostPerUnit": 4,
+    // Shelter capacity slots gained per shelter unit built. Use integers >= 1.
+    "capacityPerUnit": 2,
+    // Extra energy restored when resting while sheltered. Use numbers >= 0.
+    "restEnergyBonusWhenSheltered": 8,
+    // Wood storage slots inside each shelter unit. Use integers >= 0.
+    "woodCapacityPerUnit": 4
+  },
+  "storage": {
+    // Wood required to build one storage unit. Use integers >= 1.
+    "woodCostPerUnit": 8,
+    // Wood capacity slots provided by one storage unit. Use integers >= 1.
+    "woodCapacityPerUnit": 24
+  },
+  "forests": {
+    // Number of forest nodes spawned initially. Use integers >= 1.
+    "initialCount": 5,
+    // Total wood available per forest before depletion. Use integers >= 1.
+    "woodPerForest": 12,
+    // Minimum ticks before a depleted forest can regrow. Use integers >= 1.
+    "regrowthTicksMin": 8,
+    // Maximum ticks before a depleted forest can regrow. Must be >= regrowthTicksMin.
+    "regrowthTicksMax": 16,
+    // Work minutes required at source during gather_wood tasks. Use integers >= 1.
+    "harvestMinutes": 30
+  },
+  "meadows": {
+    // Number of meadow nodes spawned initially. Use integers >= 1.
+    "initialCount": 4,
+    // Total fiber available per meadow before depletion. Use integers >= 1.
+    "fiberPerMeadow": 10,
+    // Minimum ticks before a depleted meadow can regrow. Use integers >= 1.
+    "regrowthTicksMin": 8,
+    // Maximum ticks before a depleted meadow can regrow. Must be >= regrowthTicksMin.
+    "regrowthTicksMax": 16,
+    // Work minutes required when gathering fiber. Use integers >= 1.
+    "harvestMinutes": 30
+  },
+  "world": {
+    // World map width in tiles. Use integers >= 8.
+    "width": 36,
+    // World map height in tiles. Use integers >= 8.
+    "height": 24
+  },
+  "survival": {
+    // Hunger threshold where starvation risk heuristics start. Typical range: 0-100.
+    "starvationHungerRiskThreshold": 70,
+    // Food reserve level considered dangerous (often 0). Use integers >= 0.
+    "foodRiskThreshold": 0,
+    // Energy threshold considered low-risk state for decisions. Typical range: 0-100.
+    "lowEnergyRiskThreshold": 20,
+    // Hunger threshold entering severe starvation stage. Typical range: 0-100.
+    "severeHungerThreshold": 85,
+    // Hunger threshold entering critical starvation stage. Typical range: 0-100.
+    "criticalHungerThreshold": 95,
+    // Hunger threshold entering collapse stage. Usually 100.
+    "collapseHungerThreshold": 100,
+    // Health loss per tick while in severe starvation and unfed. Use numbers >= 0.
+    "severeHungerHealthLoss": 3,
+    // Health loss per tick while in critical starvation and unfed. Use numbers >= 0.
+    "criticalHungerHealthLoss": 5,
+    // Energy loss per tick while in critical starvation and unfed. Use numbers >= 0.
+    "criticalHungerEnergyLoss": 6,
+    // Health loss per tick while in starvation collapse. Use numbers >= 0.
+    "collapseHealthLossPerTick": 8,
+    // Number of collapse ticks before death. Use integers >= 1.
+    "starvationDeathTicks": 2,
+    // Hunger threshold that can interrupt current tasks for emergency behavior. Typical range: 0-100.
+    "emergencyInterruptHungerThreshold": 80,
+    // Energy threshold that can interrupt current tasks for emergency behavior. Typical range: 0-100.
+    "emergencyInterruptEnergyThreshold": 10,
+    // Hunger threshold to force eat behavior if food exists. Typical range: 0-100.
+    "forceEatHungerThreshold": 85,
+    // Hunger threshold that blocks risky wood-focused actions. Typical range: 0-100.
+    "woodBlockHungerThreshold": 70,
+    // Energy threshold that blocks risky wood-focused actions. Typical range: 0-100.
+    "woodBlockEnergyThreshold": 25,
+    // Safety multiplier for reserve calculations (1.0 means no extra buffer). Use numbers >= 1.
+    "foodReserveSafetyMultiplier": 1.35
+  },
+  "reproduction": {
+    // Master toggle for reproduction system. Allowed: true or false.
+    "enabled": true,
+    // Require male+female pairing for reproduction. Allowed: true or false.
+    "requiresMaleAndFemale": true,
+    // Require free shelter capacity before newborn can be created. Allowed: true or false.
+    "requiresShelterCapacityAvailable": true,
+    // Minimum age considered adult for reproduction logic. Use numbers >= 0.
+    "minAdultAge": 18,
+    // Base probability (0.0-1.0) of conception when requirements are met.
+    "conceptionChance": 0.35
+  },
+  "healing": {
+    // Health restored per tick at night with fire milestone and shelter support. Use numbers >= 0.
+    "fireNightShelterHeal": 2,
+    // Health restored from nutrition after agriculture conditions are met. Use numbers >= 0.
+    "agricultureNutritionHeal": 2,
+    // Max hunger allowed to receive agriculture nutrition heal. Typical range: 0-100.
+    "agricultureHungerThreshold": 40,
+    // Health restored immediately after successful eating. Use numbers >= 0.
+    "eatRecoveryHeal": 3,
+    // Health restored when fed during severe/critical starvation recovery. Use numbers >= 0.
+    "starvationRecoveryHealWhenFed": 6,
+    // Passive heal per tick while sheltered and under hunger threshold. Use numbers >= 0.
+    "shelterRecoveryHealPerTick": 2,
+    // Max hunger allowed for shelter recovery healing. Typical range: 0-100.
+    "shelterRecoveryMaxHunger": 75,
+    // Minimum energy required to perform care action. Typical range: 0-100.
+    "careMinEnergy": 30,
+    // Maximum hunger allowed to perform care action. Typical range: 0-100.
+    "careMaxHunger": 75
+  },
+  "weather": {
+    // Health loss per tick when exposed during snowy weather. Use numbers >= 0.
+    "snowyExposedHealthLossPerTick": 6,
+    // Energy loss per tick when exposed during snowy weather. Use numbers >= 0.
+    "snowyExposedEnergyLossPerTick": 8,
+    // Extra snowy health loss when vitals are critical. Use numbers >= 0.
+    "snowyCriticalExtraHealthLoss": 4,
+    // Health loss per tick during cold nights when exposed. Use numbers >= 0.
+    "coldNightExposedHealthLossPerTick": 2,
+    // Energy loss per tick during cold nights when exposed. Use numbers >= 0.
+    "coldNightExposedEnergyLossPerTick": 5,
+    // Energy loss per tick during cold nights when sheltered. Use numbers >= 0.
+    "coldNightShelteredEnergyLossPerTick": 2
+  },
+  "protection": {
+    // Fiber gained per gather_fiber completion. Use integers >= 1.
+    "fiberPerGather": 2,
+    // Fiber required to craft protective clothes. Use integers >= 0.
+    "fiberCostPerClothes": 6,
+    // Wood required to craft protective clothes. Use integers >= 0.
+    "woodCostPerClothes": 2,
+    // Number of protection charges granted per clothes craft. Use integers >= 1.
+    "gearChargesPerCraft": 8,
+    // Food cost to prepare one warm meal. Use integers >= 0.
+    "warmMealFoodCost": 1,
+    // Duration in ticks of warm meal protection buff. Use integers >= 1.
+    "warmMealBuffTicks": 3,
+    // Snowy damage reduction amount when protection is active. Use numbers >= 0.
+    "snowyDamageReductionWithProtection": 8,
+    // Cold-night damage reduction amount when protection is active. Use numbers >= 0.
+    "coldNightDamageReductionWithProtection": 3
+  }
+}

@@ -1,4 +1,8 @@
 import * as THREE from '../../node_modules/three/build/three.module.js';
+import {
+  buildLatestThoughtByCivling,
+  deriveBubbleModel
+} from './civlingBubbleText.js';
 
 const statusEl = document.getElementById('status');
 const layoutEl = document.getElementById('dashboardLayout');
@@ -11,6 +15,7 @@ const actionChartEl = document.getElementById('actionChart');
 const civlingStatsEl = document.getElementById('civlingStats');
 const worldCanvasEl = document.getElementById('worldCanvas');
 const worldCanvasWrapperEl = document.getElementById('worldCanvasWrapper');
+const civlingBubbleLayerEl = document.getElementById('civlingBubbleLayer');
 const startBtn = document.getElementById('startBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const resumeBtn = document.getElementById('resumeBtn');
@@ -44,6 +49,7 @@ const meadowMeshes = new Map();
 const shelterMeshes = new Map();
 const storageMeshes = new Map();
 const civlingMotionCache = new Map();
+const civlingBubbleEls = new Map();
 let worldGridLines = null;
 let worldGridSignature = '';
 let showGrid = false;
@@ -1004,6 +1010,215 @@ function updateInterpolatedCivlingMeshes(nowMs) {
 }
 
 /**
+ * @param {{left: number, top: number, right: number, bottom: number}} a
+ * @param {{left: number, top: number, right: number, bottom: number}} b
+ * @param {number} padding
+ * @returns {boolean}
+ */
+function rectsOverlap(a, b, padding = 0) {
+  return !(
+    a.right + padding <= b.left ||
+    b.right + padding <= a.left ||
+    a.bottom + padding <= b.top ||
+    b.bottom + padding <= a.top
+  );
+}
+
+/**
+ * Returns bubble rect bounds for a given anchor point in canvas coordinates.
+ * Bubble CSS uses translate(-50%, calc(-100% - 14px)).
+ * @param {number} anchorX
+ * @param {number} anchorY
+ * @param {number} width
+ * @param {number} height
+ * @returns {{left: number, top: number, right: number, bottom: number}}
+ */
+function bubbleRectFromAnchor(anchorX, anchorY, width, height) {
+  const left = anchorX - width / 2;
+  const top = anchorY - height - 14;
+  return {
+    left,
+    top,
+    right: left + width,
+    bottom: top + height
+  };
+}
+
+/**
+ * @param {number} hex
+ * @returns {{r: number, g: number, b: number}}
+ */
+function hexToRgb(hex) {
+  return {
+    r: (hex >> 16) & 255,
+    g: (hex >> 8) & 255,
+    b: hex & 255
+  };
+}
+
+/**
+ * @param {number} hex
+ * @returns {{accent: string, bg: string, name: string}}
+ */
+function getBubbleColorTheme(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return {
+    accent: `rgba(${r}, ${g}, ${b}, 0.72)`,
+    bg: `rgba(${r}, ${g}, ${b}, 0.16)`,
+    name: `rgba(${r}, ${g}, ${b}, 0.98)`
+  };
+}
+
+function upsertCivlingBubbles(world, thoughtLog) {
+  const aliveCivlings = world.civlings.filter(
+    (civling) => civling.status === 'alive'
+  );
+  const aliveIds = new Set(aliveCivlings.map((civling) => civling.id));
+  const latestThoughtByCivling = buildLatestThoughtByCivling(
+    thoughtLog,
+    world.runId
+  );
+
+  for (const [id, bubble] of civlingBubbleEls.entries()) {
+    if (aliveIds.has(id)) {
+      continue;
+    }
+    bubble.root.remove();
+    civlingBubbleEls.delete(id);
+  }
+
+  for (const civling of aliveCivlings) {
+    const latestThought = latestThoughtByCivling.get(civling.id);
+    const model = deriveBubbleModel(civling, latestThought);
+    let bubble = civlingBubbleEls.get(civling.id);
+    if (!bubble) {
+      const root = document.createElement('div');
+      root.className = 'civling-bubble';
+      const name = document.createElement('p');
+      name.className = 'civling-bubble-name';
+
+      const doing = document.createElement('p');
+      doing.className = 'civling-bubble-doing';
+
+      const planning = document.createElement('p');
+      planning.className = 'civling-bubble-planning';
+
+      root.appendChild(name);
+      root.appendChild(doing);
+      root.appendChild(planning);
+      civlingBubbleLayerEl.appendChild(root);
+      bubble = { root, name, doing, planning };
+      civlingBubbleEls.set(civling.id, bubble);
+    }
+
+    const colorHex =
+      civling.gender === 'male' ? CIVLING_COLORS.male : CIVLING_COLORS.female;
+    const theme = getBubbleColorTheme(colorHex);
+    bubble.root.style.setProperty('--bubble-accent', theme.accent);
+    bubble.root.style.setProperty('--bubble-bg', theme.bg);
+    bubble.root.style.setProperty('--bubble-name', theme.name);
+    bubble.name.textContent = civling.name;
+    bubble.doing.textContent = `Doing: ${model.doingText}`;
+    bubble.planning.textContent = `Planning: ${model.planningText}`;
+  }
+}
+
+function updateCivlingBubblePositions(nowMs) {
+  if (!latestWorld) {
+    return;
+  }
+  const canvasWidth = worldCanvasEl.clientWidth;
+  const canvasHeight = worldCanvasEl.clientHeight;
+  const aliveById = new Map(
+    latestWorld.civlings
+      .filter((civling) => civling.status === 'alive')
+      .map((civling) => [civling.id, civling])
+  );
+  const placedRects = [];
+  const visibleBubbleData = [];
+
+  for (const [id, bubble] of civlingBubbleEls.entries()) {
+    const civling = aliveById.get(id);
+    if (!civling) {
+      bubble.root.style.display = 'none';
+      continue;
+    }
+    const snapshot = civlingMotionCache.get(id);
+    const position = snapshot
+      ? getInterpolatedPosition(snapshot, nowMs)
+      : { x: civling.x, y: civling.y };
+
+    const visible =
+      position.x >= camera.left &&
+      position.x <= camera.right &&
+      position.y >= camera.bottom &&
+      position.y <= camera.top;
+    if (!visible) {
+      bubble.root.style.display = 'none';
+      continue;
+    }
+
+    visibleBubbleData.push({
+      bubble,
+      anchorX: worldToCanvasX(position.x, canvasWidth),
+      anchorY: worldToCanvasY(position.y, canvasHeight)
+    });
+  }
+
+  visibleBubbleData.sort((a, b) => a.anchorY - b.anchorY || a.anchorX - b.anchorX);
+  const sideOffsets = [0, -1, 1, -2, 2];
+  const horizontalStepPx = 26;
+  const verticalStepPx = 16;
+  const overlapPaddingPx = 6;
+
+  for (const item of visibleBubbleData) {
+    const { bubble } = item;
+    const width = Math.max(110, bubble.root.offsetWidth || 160);
+    const height = Math.max(26, bubble.root.offsetHeight || 42);
+    let chosenAnchorX = item.anchorX;
+    let chosenAnchorY = item.anchorY;
+    let chosenRect = bubbleRectFromAnchor(chosenAnchorX, chosenAnchorY, width, height);
+    let placed = false;
+
+    for (let lane = 0; lane < 18 && !placed; lane += 1) {
+      for (const side of sideOffsets) {
+        const candidateAnchorX = clamp(
+          item.anchorX + side * horizontalStepPx,
+          width / 2 + 2,
+          canvasWidth - width / 2 - 2
+        );
+        const candidateAnchorY = item.anchorY - lane * verticalStepPx;
+        const candidateRect = bubbleRectFromAnchor(
+          candidateAnchorX,
+          candidateAnchorY,
+          width,
+          height
+        );
+        if (candidateRect.top < 2) {
+          continue;
+        }
+        const overlaps = placedRects.some((rect) =>
+          rectsOverlap(candidateRect, rect, overlapPaddingPx)
+        );
+        if (overlaps) {
+          continue;
+        }
+        chosenAnchorX = candidateAnchorX;
+        chosenAnchorY = candidateAnchorY;
+        chosenRect = candidateRect;
+        placed = true;
+        break;
+      }
+    }
+
+    bubble.root.style.display = 'block';
+    bubble.root.style.left = `${chosenAnchorX.toFixed(1)}px`;
+    bubble.root.style.top = `${chosenAnchorY.toFixed(1)}px`;
+    placedRects.push(chosenRect);
+  }
+}
+
+/**
  * Lazily mounts renderer debug text for movement playback diagnostics.
  * @returns {HTMLDivElement|null}
  */
@@ -1159,6 +1374,7 @@ function renderFrame() {
   if (latestWorld) {
     updateMovementDebug(latestWorld, nowMs);
   }
+  updateCivlingBubblePositions(nowMs);
   renderer.render(scene, camera);
   requestAnimationFrame(renderFrame);
 }
@@ -1185,8 +1401,10 @@ function onState(
   setActionChart(world.civlings, thoughtLog, world.runId);
   setCivlingStats(world.civlings, thoughtLog);
   upsertCivlings(world);
+  upsertCivlingBubbles(world, thoughtLog);
   upsertStaticEntities(world);
   updateGridVisibility(world);
+  updateCivlingBubblePositions(nowMs);
 
   if (error) {
     setStatus(`error (${error})`);
