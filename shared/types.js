@@ -88,6 +88,8 @@
  * @property {number} shelterBuildFailures
  * @property {number} babyChance
  * @property {number|null} reproduceIntentTick
+ * @property {number} starvationTicks
+ * @property {'normal'|'severe'|'critical'|'collapse'} lastStarvationStage
  * @property {CivlingTask|null} currentTask
  * @property {CivlingPersonality} personality
  * @property {WeatherProtection} weatherProtection

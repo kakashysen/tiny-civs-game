@@ -277,6 +277,62 @@ function applyWeatherRiskPolicy(civling, world, envelope) {
 }
 
 /**
+ * @param {number} month
+ * @returns {'winter'|'spring'|'summer'|'autumn'}
+ */
+function getSeasonByMonth(month) {
+  if ([12, 1, 2].includes(month)) {
+    return 'winter';
+  }
+  if ([3, 4, 5].includes(month)) {
+    return 'spring';
+  }
+  if ([6, 7, 8].includes(month)) {
+    return 'summer';
+  }
+  return 'autumn';
+}
+
+/**
+ * Prevent risky late-day winter outdoor starts before cold night.
+ * @param {import('../../shared/types.js').Civling} civling
+ * @param {import('../../shared/types.js').WorldState} world
+ * @param {import('../../shared/types.js').ActionEnvelope & {source?: string}} envelope
+ */
+function applySeasonRiskPolicy(civling, world, envelope) {
+  const riskyOutdoorAction =
+    envelope.action === ACTIONS.GATHER_WOOD ||
+    envelope.action === ACTIONS.GATHER_FIBER ||
+    envelope.action === ACTIONS.EXPLORE;
+  if (!riskyOutdoorAction) {
+    return envelope;
+  }
+
+  const season = getSeasonByMonth(world.time.month);
+  const hasProtection =
+    (civling.weatherProtection?.foodBuffTicks ?? 0) > 0 ||
+    (civling.weatherProtection?.gearCharges ?? 0) > 0;
+  const inLateWinterDay =
+    season === 'winter' &&
+    world.time.phase === 'day' &&
+    world.environment.nightTemperature === 'cold' &&
+    world.time.minuteOfDay >= 16 * 60;
+  if (!inLateWinterDay || hasProtection) {
+    return envelope;
+  }
+
+  const alternative = decideDeterministicAction(civling, world);
+  if (alternative.action === envelope.action) {
+    return envelope;
+  }
+  return {
+    action: alternative.action,
+    reason: `season_risk_override:${envelope.reason}`,
+    source: 'local_api_adjusted'
+  };
+}
+
+/**
  * Prevent care action before tools milestone is unlocked.
  * @param {import('../../shared/types.js').Civling} civling
  * @param {import('../../shared/types.js').WorldState} world
@@ -425,6 +481,7 @@ export class LocalApiProvider {
           let adjusted = applyAntiLoopPolicy(civling, world, envelope);
           adjusted = applySurvivalPolicy(civling, world, adjusted);
           adjusted = applyWeatherRiskPolicy(civling, world, adjusted);
+          adjusted = applySeasonRiskPolicy(civling, world, adjusted);
           adjusted = applyCareUnlockPolicy(civling, world, adjusted);
           adjusted = applyShelterNeedPolicy(world, adjusted);
           adjusted = applyReproductionPolicy(civling, world, adjusted);

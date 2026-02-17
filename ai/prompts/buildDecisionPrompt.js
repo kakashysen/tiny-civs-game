@@ -19,6 +19,23 @@ function getShelterTarget(aliveCivlings) {
 }
 
 /**
+ * @param {number} month
+ * @returns {'winter'|'spring'|'summer'|'autumn'}
+ */
+function getSeasonByMonth(month) {
+  if ([12, 1, 2].includes(month)) {
+    return 'winter';
+  }
+  if ([3, 4, 5].includes(month)) {
+    return 'spring';
+  }
+  if ([6, 7, 8].includes(month)) {
+    return 'summer';
+  }
+  return 'autumn';
+}
+
+/**
  * Calculates reproduction readiness for the current civling.
  * @param {import('../../shared/types.js').Civling} civling
  * @param {import('../../shared/types.js').WorldState} world
@@ -114,6 +131,7 @@ export function buildDecisionPrompt(civling, world) {
     aliveCivlings,
     reserveTarget
   );
+  const season = getSeasonByMonth(world.time.month);
   const payload = {
     runId: world.runId,
     tick: world.tick,
@@ -141,6 +159,7 @@ export function buildDecisionPrompt(civling, world) {
       sheltersBuilt: world.shelters?.length ?? 0,
       time: world.time,
       environment: world.environment,
+      season,
       shelterCapacity: world.resources.shelterCapacity,
       shelterTarget,
       shelterNeeded: Math.max(
@@ -176,6 +195,7 @@ export function buildDecisionPrompt(civling, world) {
     'Hard rule: if world.shelterNeeded > 0 and world.wood >= rules.shelter.woodCostPerUnit and civling.energy >= 35, prioritize build_shelter.',
     'Hard rule: when weather is snowy and civling is outside shelter without protection, avoid risky outdoor actions.',
     'Hard rule: during cold nights outside shelter without protection, avoid risky outdoor actions.',
+    'Hard rule: in winter, if cold night is expected, avoid starting risky outdoor actions late in the day without protection.',
     'Hard rule: if weather risk is high and build_shelter is not possible, prefer prepare_warm_meal or craft_clothes before outdoor gathering.',
     'Hard rule: do not choose rest unless civling.energy <= 35 or civling.hunger >= 80.',
     'Hard rule: if recent memory already contains repeated rest and there is no emergency, choose a productive action.',
